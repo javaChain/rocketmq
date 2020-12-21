@@ -44,15 +44,70 @@ import org.apache.rocketmq.common.protocol.route.QueueData;
 import org.apache.rocketmq.common.protocol.route.TopicRouteData;
 import org.apache.rocketmq.common.sysflag.TopicSysFlag;
 import org.apache.rocketmq.remoting.common.RemotingUtil;
-
+/** 
+* @Description: NameSrv路由信息管理 
+* @Param:  
+* @return:  
+* @Author: rom1c
+* @Date: 2020/12/20 
+*/ 
 public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
+    /**
+    * @Description:  broker 120S过期时间
+    * @Param:
+    * @return:
+    * @Author: rom1c
+    * @Date: 2020/12/20
+    */
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
+    /**
+    * @Description: 读写锁
+    * @Param:
+    * @return:
+    * @Author: rom1c
+    * @Date: 2020/12/20
+    */
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
+    /**
+    * @Description:  topic消息队列路由信息
+    * @Param:
+    * @return:
+    * @Author: rom1c
+    * @Date: 2020/12/20
+    */
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
+    /** 
+    * @Description: broker基础信息 
+    * @Param:  
+    * @return:  
+    * @Author: rom1c
+    * @Date: 2020/12/20 
+    */
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
+    /** 
+    * @Description: broker集群信息 
+    * @Param:  
+    * @return:  
+    * @Author: rom1c
+    * @Date: 2020/12/20 
+    */ 
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
+    /** 
+    * @Description: broker状态信息, 
+    * @Param:  
+    * @return:  
+    * @Author: rom1c
+    * @Date: 2020/12/20 
+    */ 
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
+    /** 
+    * @Description:  broker上的filterServer列表
+    * @Param:  
+    * @return:  
+    * @Author: rom1c
+    * @Date: 2020/12/20 
+    */ 
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
     public RouteInfoManager() {
@@ -111,8 +166,9 @@ public class RouteInfoManager {
         RegisterBrokerResult result = new RegisterBrokerResult();
         try {
             try {
+                //获得写锁
                 this.lock.writeLock().lockInterruptibly();
-
+                //先从clusterAddrTable之中通过clusterName获取,如果为空,则添加到集群之中
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
@@ -142,6 +198,7 @@ public class RouteInfoManager {
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
                 registerFirst = registerFirst || (null == oldAddr);
 
+                //如果broker 是主
                 if (null != topicConfigWrapper
                     && MixAll.MASTER_ID == brokerId) {
                     if (this.isBrokerTopicConfigChanged(brokerAddr, topicConfigWrapper.getDataVersion())
@@ -150,6 +207,7 @@ public class RouteInfoManager {
                             topicConfigWrapper.getTopicConfigTable();
                         if (tcTable != null) {
                             for (Map.Entry<String, TopicConfig> entry : tcTable.entrySet()) {
+                                //创建队列
                                 this.createAndUpdateQueueData(brokerName, entry.getValue());
                             }
                         }
@@ -215,6 +273,7 @@ public class RouteInfoManager {
     }
 
     private void createAndUpdateQueueData(final String brokerName, final TopicConfig topicConfig) {
+        //构造一个队列数据
         QueueData queueData = new QueueData();
         queueData.setBrokerName(brokerName);
         queueData.setWriteQueueNums(topicConfig.getWriteQueueNums());
@@ -222,10 +281,11 @@ public class RouteInfoManager {
         queueData.setPerm(topicConfig.getPerm());
         queueData.setTopicSynFlag(topicConfig.getTopicSysFlag());
 
+        //通过topicName获得topicQueueList
         List<QueueData> queueDataList = this.topicQueueTable.get(topicConfig.getTopicName());
         if (null == queueDataList) {
             queueDataList = new LinkedList<QueueData>();
-            queueDataList.add(queueData);
+            queueDataList.add(queueData); //把队列数据加入到queueList
             this.topicQueueTable.put(topicConfig.getTopicName(), queueDataList);
             log.info("new topic registered, {} {}", topicConfig.getTopicName(), queueData);
         } else {
@@ -426,6 +486,13 @@ public class RouteInfoManager {
         return null;
     }
 
+    /** 
+    * @Description: 每10s扫描brokerLiveTable,如果上一次的更新时间+120s小于当前时间就关闭Channel
+    * @Param: [] 
+    * @return: void 
+    * @Author: rom1c
+    * @Date: 2020/12/20 
+    */ 
     public void scanNotActiveBroker() {
         Iterator<Entry<String, BrokerLiveInfo>> it = this.brokerLiveTable.entrySet().iterator();
         while (it.hasNext()) {

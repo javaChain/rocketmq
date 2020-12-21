@@ -1,0 +1,34 @@
+源码debug:
+1. 首先github下载rocketmq的4.7.1的代码
+2. 配置nameserver(NamesrvController),broker(BrokerStartup)的ROCKET_HOME环境变量和
+	program argument -c "E:\Program Files\rocketmq-all-4.7.1-bin-release\conf\broker.conf"
+3.	依次启动namesrv/broker/producer/consumer
+
+
+namesrv启动的时候,首先加载配置文件,然后启动了2个线程池 一个10s是扫描broker,一个是10分钟打印配置文件
+初始化了netty remoteServer的必要参数. 然后注册了停止函数钩子(需要借鉴). 启动remoteServer netty.服务就启动了
+
+broker启动 加载配置文件, 初始化很多定时任务, 通过netty包装了请求向namesrv发送连接
+
+
+RouteInfoManager 收到请求之后会通过request.getCode的类型进行不同的处理!
+
+
+
+nameserver 服务发现? 集群之间是否需要相互通信?
+设计一个rocketMQ的注册中心需要注意什么?
+nameserver 动态路由发现与剔除机制?
+1. ap/cp 选型 zookeeper是cp的 强一致性,那么server是ap高可用,软一致性
+2. nameserver 集群之间不需要通信,broker服务启动的时候会向每一个NameServer注册自己的信息, producer会从NameServer之中获取broker的服务器信息
+3. nameserver 动态路由: producer会从NameServer之中获取broker的服务器信息,然后根据负载均衡的算法选中一台服务器进行消息发送.
+nameserver的剔除机制是: NameServer与broker会保持长连接,NameServer会每30s向broker发送消息.NameServer如果在120s之中没有收到broker的心跳包,就会剔除该服务器
+
+
+
+broker 双主的时候到底是怎么处理producer发送到的消息的,如果发送到master1,master2是怎么处理的呢?
+
+HashMap<String, List<QueueData>> topicQueueTable;
+TopicQueueTable key topicName,value List<QueueData>
+
+读队列和写队列是如何工作的?
+consumer是如何定位到哪一个读队列,producer怎么选择哪一个写队列

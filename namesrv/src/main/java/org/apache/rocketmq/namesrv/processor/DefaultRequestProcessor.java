@@ -67,6 +67,13 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
         this.namesrvController = namesrvController;
     }
 
+    /** 
+    * @Description: 通过requestCode解析请求 
+    * @Param: [ctx, request] 
+    * @return: org.apache.rocketmq.remoting.protocol.RemotingCommand 
+    * @Author: rom1c
+    * @Date: 2020/12/20 
+    */ 
     @Override
     public RemotingCommand processRequest(ChannelHandlerContext ctx,
         RemotingCommand request) throws RemotingCommandException {
@@ -217,6 +224,7 @@ public class DefaultRequestProcessor extends AsyncNettyRequestProcessor implemen
             registerBrokerBody.getTopicConfigSerializeWrapper().getDataVersion().setTimestamp(0);
         }
 
+        //调用routeInfoManager的注册broker到namesrv
         RegisterBrokerResult result = this.namesrvController.getRouteInfoManager().registerBroker(
             requestHeader.getClusterName(),
             requestHeader.getBrokerAddr(),

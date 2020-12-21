@@ -53,7 +53,14 @@ public class BrokerStartup {
     public static CommandLine commandLine = null;
     public static String configFile = null;
     public static InternalLogger log;
-
+    
+    /** 
+    * @Description: broker启动 
+    * @Param: [args] 
+    * @return: void 
+    * @Author: rom1c
+    * @Date: 2020/12/20 
+    */ 
     public static void main(String[] args) {
         start(createBrokerController(args));
     }
@@ -147,9 +154,11 @@ public class BrokerStartup {
                 System.exit(-2);
             }
 
+            //获得NameSrv地址
             String namesrvAddr = brokerConfig.getNamesrvAddr();
             if (null != namesrvAddr) {
                 try {
+                    //使用;分隔->127.0.0.1:9876;127.0.0.2:9876;
                     String[] addrArray = namesrvAddr.split(";");
                     for (String addr : addrArray) {
                         RemotingUtil.string2SocketAddress(addr);

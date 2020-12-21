@@ -25,6 +25,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 import java.util.concurrent.Callable;
+
+import com.sun.org.glassfish.gmbal.Description;
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.Option;
 import org.apache.commons.cli.Options;
@@ -47,14 +49,24 @@ public class NamesrvStartup {
     private static Properties properties = null;
     private static CommandLine commandLine = null;
 
+
     public static void main(String[] args) {
         main0(args);
     }
 
+    /**
+     * @Description: asdasd
+     * @Param: [args]
+     * @return: void
+     * @Author: rom1c
+     * @Date: 2020/12/20
+     */
     public static NamesrvController main0(String[] args) {
-
         try {
+            //加载 环境变量(rocket_home)和命令行启动参数
             NamesrvController controller = createNamesrvController(args);
+
+            //启动
             start(controller);
             String tip = "The Name Server boot success. serializeType=" + RemotingCommand.getSerializeTypeConfigInThisServer();
             log.info(tip);
@@ -72,6 +84,7 @@ public class NamesrvStartup {
         System.setProperty(RemotingCommand.REMOTING_VERSION_KEY, Integer.toString(MQVersion.CURRENT_VERSION));
         //PackageConflictDetect.detectFastjson();
 
+        //构造启动参数
         Options options = ServerUtil.buildCommandlineOptions(new Options());
         commandLine = ServerUtil.parseCmdLine("mqnamesrv", args, buildCommandlineOptions(options), new PosixParser());
         if (null == commandLine) {
@@ -79,10 +92,14 @@ public class NamesrvStartup {
             return null;
         }
 
+        //构造namesrvConifig的初始化参数
         final NamesrvConfig namesrvConfig = new NamesrvConfig();
         final NettyServerConfig nettyServerConfig = new NettyServerConfig();
         nettyServerConfig.setListenPort(9876);
+
+        //判断启动参数是否有c
         if (commandLine.hasOption('c')) {
+            //获取启动参数c的值
             String file = commandLine.getOptionValue('c');
             if (file != null) {
                 InputStream in = new BufferedInputStream(new FileInputStream(file));
@@ -98,6 +115,7 @@ public class NamesrvStartup {
             }
         }
 
+        //-p参数,打印当前的namesrv的配置文件 然后服务退出
         if (commandLine.hasOption('p')) {
             InternalLogger console = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_CONSOLE_NAME);
             MixAll.printObjectProperties(console, namesrvConfig);
@@ -113,9 +131,11 @@ public class NamesrvStartup {
         }
 
         LoggerContext lc = (LoggerContext) LoggerFactory.getILoggerFactory();
+        //logback装载的配置对象
         JoranConfigurator configurator = new JoranConfigurator();
         configurator.setContext(lc);
         lc.reset();
+        //加载logback_namesrv.xml
         configurator.doConfigure(namesrvConfig.getRocketmqHome() + "/conf/logback_namesrv.xml");
 
         log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
@@ -131,18 +151,27 @@ public class NamesrvStartup {
         return controller;
     }
 
-    public static NamesrvController start(final NamesrvController controller) throws Exception {
 
+
+
+    /**
+     * @Description: asdas
+     * @param controller
+     * @return
+     * @throws Exception
+     */
+    public static NamesrvController start(final NamesrvController controller) throws Exception {
         if (null == controller) {
             throw new IllegalArgumentException("NamesrvController is null");
         }
 
         boolean initResult = controller.initialize();
+
         if (!initResult) {
             controller.shutdown();
             System.exit(-3);
         }
-
+        //注册jvm钩子函数,当停止的时候释放controller的线程
         Runtime.getRuntime().addShutdownHook(new ShutdownHookThread(log, new Callable<Void>() {
             @Override
             public Void call() throws Exception {
@@ -151,6 +180,7 @@ public class NamesrvStartup {
             }
         }));
 
+        //服务启动
         controller.start();
 
         return controller;
