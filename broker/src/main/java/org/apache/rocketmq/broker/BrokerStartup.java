@@ -54,13 +54,13 @@ public class BrokerStartup {
     public static String configFile = null;
     public static InternalLogger log;
     
-    /** 
-    * @Description: broker启动 
-    * @Param: [args] 
-    * @return: void 
-    * @Author: rom1c
-    * @Date: 2020/12/20 
-    */ 
+    /**
+     * broker启动
+     * @param args
+     * @return void
+     * @author chenqi
+     * @date 2020/12/22 16:53
+     */
     public static void main(String[] args) {
         start(createBrokerController(args));
     }

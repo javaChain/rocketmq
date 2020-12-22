@@ -10,12 +10,21 @@ namesrv启动的时候,首先加载配置文件,然后启动了2个线程池 一
 
 broker启动 加载配置文件, 初始化很多定时任务, 通过netty包装了请求向namesrv发送连接
 
-
 RouteInfoManager 收到请求之后会通过request.getCode的类型进行不同的处理!
 
+NameServer如何保持一致?
+1. 服务注册(broker新增): broker启动的时候会向NameServer注册自己的信息
+2. 服务剔除(broker关闭或宕机):
+   - broker主动关闭 会调用方法RouteInfoManager#unregisterBroker()
+   - broker宕机 NameServer每隔10S会发送心跳包给broker探活,如果120s内没有回复则剔除broker
+3. 路由发现: producer/consumer 启动会主动拉取最新的路由
+NameServer相互不通信如何保证一致?
+nameserver 集群之间不需要通信,broker服务启动的时候会向每一个NameServer注册自己的信息, producer会从NameServer之中获取broker的服务器信息
 
 
-nameserver 服务发现? 集群之间是否需要相互通信?
+
+
+
 设计一个rocketMQ的注册中心需要注意什么?
 nameserver 动态路由发现与剔除机制?
 1. ap/cp 选型 zookeeper是cp的 强一致性,那么server是ap高可用,软一致性
