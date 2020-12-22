@@ -741,7 +741,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     }
 
     /**
-     * This method will be removed in a certain version after April 5, 2020, so please do not use this method.
+     * 创建topic
      *
      * @param key accesskey
      * @param newTopic topic name
@@ -771,7 +771,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     }
 
     /**
-     * Search consume queue offset of the given time stamp.
+     * 根据时间戳从队列中查找其偏移量
      *
      * @param mq Instance of MessageQueue
      * @param timestamp from when in milliseconds.
@@ -784,7 +784,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     }
 
     /**
-     * Query maximum offset of the given message queue.
+     * 查询该消息队列中最大的物理偏移量
      *
      * This method will be removed in a certain version after April 5, 2020, so please do not use this method.
      *
@@ -799,7 +799,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     }
 
     /**
-     * Query minimum offset of the given message queue.
+     * 询该消息队列中最小的物理偏移量
      *
      * This method will be removed in a certain version after April 5, 2020, so please do not use this method.
      *
@@ -829,7 +829,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     }
 
     /**
-     * Query message of the given offset message ID.
+     * 根据消息偏移量查找消息
      *
      * This method will be removed in a certain version after April 5, 2020, so please do not use this method.
      *
@@ -848,7 +848,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     }
 
     /**
-     * Query message by key.
+     * 根据条件查询消息
      *
      * This method will be removed in a certain version after April 5, 2020, so please do not use this method.
      *
@@ -869,7 +869,7 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
     }
 
     /**
-     * Query message of the given message ID.
+     * 根据主题和消息id查找消息
      *
      * This method will be removed in a certain version after April 5, 2020, so please do not use this method.
      *
@@ -893,24 +893,53 @@ public class DefaultMQProducer extends ClientConfig implements MQProducer {
         return this.defaultMQProducerImpl.queryMessageByUniqKey(withNamespace(topic), msgId);
     }
 
+    /**
+     * 批量发送消息
+     * @param msgs
+     * @return org.apache.rocketmq.client.producer.SendResult
+     * @author chenqi
+     * @date 2020/12/22 20:30
+    */
     @Override
     public SendResult send(
         Collection<Message> msgs) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
         return this.defaultMQProducerImpl.send(batch(msgs));
     }
 
+    /**
+     * 批量发送消息,有超时时间
+     * @param msgs
+     * @param timeout
+     * @return org.apache.rocketmq.client.producer.SendResult
+     * @author chenqi
+     * @date 2020/12/22 20:31
+    */
     @Override
     public SendResult send(Collection<Message> msgs,
         long timeout) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
         return this.defaultMQProducerImpl.send(batch(msgs), timeout);
     }
-
+    /**
+     * 批量发送消息到指定队列中
+     * @param msgs
+     * @param messageQueue
+     * @return org.apache.rocketmq.client.producer.SendResult
+     * @author chenqi
+     * @date 2020/12/22 20:34
+    */
     @Override
     public SendResult send(Collection<Message> msgs,
         MessageQueue messageQueue) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
         return this.defaultMQProducerImpl.send(batch(msgs), messageQueue);
     }
-
+    /**
+     * 批量发送消息到指定队列中,有超时时间
+     * @param msgs
+     * @param messageQueue
+     * @return org.apache.rocketmq.client.producer.SendResult
+     * @author chenqi
+     * @date 2020/12/22 20:34
+     */
     @Override
     public SendResult send(Collection<Message> msgs, MessageQueue messageQueue,
         long timeout) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {

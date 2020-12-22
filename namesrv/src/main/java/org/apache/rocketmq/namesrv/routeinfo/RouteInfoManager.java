@@ -54,60 +54,59 @@ import org.apache.rocketmq.remoting.common.RemotingUtil;
 public class RouteInfoManager {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.NAMESRV_LOGGER_NAME);
     /**
-    * @Description:  broker 120S过期时间
-    * @Param:
-    * @return:
-    * @Author: rom1c
-    * @Date: 2020/12/20
+     * broker 120S过期时间
+     * @return 
+     * @author chenqi
+     * @date 2020/12/21 19:17
     */
     private final static long BROKER_CHANNEL_EXPIRED_TIME = 1000 * 60 * 2;
-    /**
-    * @Description: 读写锁
-    * @Param:
-    * @return:
-    * @Author: rom1c
-    * @Date: 2020/12/20
-    */
+   /**
+    * 读写锁
+    * @param null
+    * @return 
+    * @author chenqi
+    * @date 2020/12/21 19:17
+   */
     private final ReadWriteLock lock = new ReentrantReadWriteLock();
     /**
-    * @Description:  topic消息队列路由信息
-    * @Param:
-    * @return:
-    * @Author: rom1c
-    * @Date: 2020/12/20
+     * topic消息队列路由信息
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/21 19:17
     */
     private final HashMap<String/* topic */, List<QueueData>> topicQueueTable;
-    /** 
-    * @Description: broker基础信息 
-    * @Param:  
-    * @return:  
-    * @Author: rom1c
-    * @Date: 2020/12/20 
-    */
+   /**
+    * broker基础信息 
+    * @param null
+    * @return 
+    * @author chenqi
+    * @date 2020/12/21 19:17
+   */
     private final HashMap<String/* brokerName */, BrokerData> brokerAddrTable;
-    /** 
-    * @Description: broker集群信息 
-    * @Param:  
-    * @return:  
-    * @Author: rom1c
-    * @Date: 2020/12/20 
-    */ 
+   /**
+    * broker集群信息 
+    * @param null
+    * @return 
+    * @author chenqi
+    * @date 2020/12/21 19:16
+   */
     private final HashMap<String/* clusterName */, Set<String/* brokerName */>> clusterAddrTable;
-    /** 
-    * @Description: broker状态信息, 
-    * @Param:  
-    * @return:  
-    * @Author: rom1c
-    * @Date: 2020/12/20 
-    */ 
+    /**
+     * broker状态信息
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/21 19:16
+    */
     private final HashMap<String/* brokerAddr */, BrokerLiveInfo> brokerLiveTable;
-    /** 
-    * @Description:  broker上的filterServer列表
-    * @Param:  
-    * @return:  
-    * @Author: rom1c
-    * @Date: 2020/12/20 
-    */ 
+    /**
+     * broker上的filterServer列表
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/21 19:16
+    */
     private final HashMap<String/* brokerAddr */, List<String>/* Filter Server */> filterServerTable;
 
     public RouteInfoManager() {
