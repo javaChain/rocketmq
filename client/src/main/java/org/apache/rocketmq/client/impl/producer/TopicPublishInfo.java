@@ -66,6 +66,13 @@ public class TopicPublishInfo {
         this.haveTopicRouterInfo = haveTopicRouterInfo;
     }
 
+    /**
+     * 根据brokerName选择消息队列
+     * @param lastBrokerName
+     * @return org.apache.rocketmq.common.message.MessageQueue
+     * @author chenqi
+     * @date 2020/12/23 19:55
+    */
     public MessageQueue selectOneMessageQueue(final String lastBrokerName) {
         if (lastBrokerName == null) {
             return selectOneMessageQueue();

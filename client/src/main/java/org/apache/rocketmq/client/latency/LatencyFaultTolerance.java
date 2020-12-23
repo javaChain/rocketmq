@@ -17,12 +17,48 @@
 
 package org.apache.rocketmq.client.latency;
 
+/**
+ * 延迟机制接口规范
+ * @param <T></T>
+ * @return 
+ * @author chenqi
+ * @date 2020/12/23 20:04
+*/
 public interface LatencyFaultTolerance<T> {
+    /**
+     * 更新失败条目
+     * @param name
+     * @param currentLatency
+     * @param notAvailableDuration
+     * @return void
+     * @author chenqi
+     * @date 2020/12/23 20:06
+    */
     void updateFaultItem(final T name, final long currentLatency, final long notAvailableDuration);
-
+    
+    /**
+     * 判断broker是否可用
+     * @param name
+     * @return boolean
+     * @author chenqi
+     * @date 2020/12/23 20:06
+    */
     boolean isAvailable(final T name);
 
+    /**
+     * 移除fault条目,意味着broker重新参与路由计算
+     * @param name
+     * @return void
+     * @author chenqi
+     * @date 2020/12/23 20:10
+    */
     void remove(final T name);
-
+    
+    /**
+     * 尝试从规避的broker中选择一个可用的broker,如果没有找到,将返回null
+     * @return T
+     * @author chenqi
+     * @date 2020/12/23 20:07
+    */
     T pickOneAtLeast();
 }

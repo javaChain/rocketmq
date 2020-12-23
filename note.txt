@@ -66,3 +66,15 @@ producer启动流程:
 this.defaultMQProducerImpl.send(msg) -> DefaultMQProducerImpl#sendDefaultImpl() ->
 
  TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
+
+
+ //选择一个MessageQueue
+ MessageQueue mqSelected = this.selectOneMessageQueue(topicPublishInfo, lastBrokerName);
+ 当sendLatencyFaultEnable=true 延迟发送, 路由计算是:sendWhichQueue++%messageQueue.size()数量
+ producer发送消息的时候会有故障检测,如果故障了 则会移除一段时间该broker.,移除的时间是下面计算的:
+ updateFaultItem(final String brokerName, final long currentLatency, boolean isolation)里层方法
+ computeNotAvailableDuration时间计算broker不参与消息发送队列负载,规避该broker.
+
+
+ 消息发送核心api
+ - sendResult = this.sendKernelImpl(msg, mq, communicationMode, sendCallback, topicPublishInfo, timeout - costTime);
