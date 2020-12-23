@@ -42,8 +42,27 @@ broker启动 加载配置文件, 初始化很多定时任务, 通过netty包装�
 2. 消息发送如何实现高可用?
 3. 批量消息发送如何实现一致?
 
+
+producer发送消息基本流程:
+验证消息->查找路由->消息发送
 producer启动流程:
-1.
+- producer.start();
 
+    1. producer启动的时候会检查是否有producerGroup,然后把instanceName改为pid,避免同一个物理机启动2个producer无法启动
+    2. 注册服务到MQClientInstance
+    3. MQClientInstance启动,启动了如下的后台任务
+    // Start request-response channel
+    this.mQClientAPIImpl.start();
+    // Start various schedule tasks
+    this.startScheduledTask();
+    // Start pull service
+    this.pullMessageService.start();
+    // Start rebalance service
+    this.rebalanceService.start();
+    // Start push service
+    this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
 
+-  SendResult sendResult = producer.send(msg);
+this.defaultMQProducerImpl.send(msg) -> DefaultMQProducerImpl#sendDefaultImpl() ->
 
+ TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());

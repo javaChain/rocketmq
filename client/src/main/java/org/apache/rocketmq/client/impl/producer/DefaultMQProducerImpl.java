@@ -185,9 +185,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 if (!this.defaultMQProducer.getProducerGroup().equals(MixAll.CLIENT_INNER_PRODUCER_GROUP)) {
                     this.defaultMQProducer.changeInstanceNameToPID();
                 }
-
+                //把instanceName改为PID
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQProducer, rpcHook);
-
+                //注册服务到MQClientInstance
                 boolean registerOK = mQClientFactory.registerProducer(this.defaultMQProducer.getProducerGroup(), this);
                 if (!registerOK) {
                     this.serviceState = ServiceState.CREATE_JUST;
@@ -198,6 +198,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
                 this.topicPublishInfoTable.put(this.defaultMQProducer.getCreateTopicKey(), new TopicPublishInfo());
 
+                //启动服务
                 if (startFactory) {
                     mQClientFactory.start();
                 }
@@ -217,6 +218,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                 break;
         }
 
+        //producer 30s向 broker发送心跳包
         this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
 
         this.timer.scheduleAtFixedRate(new TimerTask() {
@@ -554,6 +556,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         long beginTimestampFirst = System.currentTimeMillis();
         long beginTimestampPrev = beginTimestampFirst;
         long endTimestamp = beginTimestampFirst;
+        //尝试去查询主题路由信息
         TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
         if (topicPublishInfo != null && topicPublishInfo.ok()) {
             boolean callTimeout = false;
@@ -687,6 +690,8 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     }
 
     private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
+        //先从本地的topicPublishInfoTable中根据topic 路由查找路由信息
+        //如果没有就创建一个TopicPublishInfo 并且在本地的topicPublishInfoTable存放一份,然后同步更新NameServer,最后返回
         TopicPublishInfo topicPublishInfo = this.topicPublishInfoTable.get(topic);
         if (null == topicPublishInfo || !topicPublishInfo.ok()) {
             this.topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
@@ -697,6 +702,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         if (topicPublishInfo.isHaveTopicRouterInfo() || topicPublishInfo.ok()) {
             return topicPublishInfo;
         } else {
+            //如果本地topicPublishInfoTable不存在就从NameServer之中去查找
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic, true, this.defaultMQProducer);
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
             return topicPublishInfo;

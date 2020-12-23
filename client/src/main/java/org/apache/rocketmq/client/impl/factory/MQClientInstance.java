@@ -157,6 +157,14 @@ public class MQClientInstance {
             MQVersion.getVersionDesc(MQVersion.CURRENT_VERSION), RemotingCommand.getSerializeTypeConfigInThisServer());
     }
 
+    /**
+     * 把RouteData转为TopicPublishInfo 进行消息发布
+     * @param topic
+     * @param route
+     * @return org.apache.rocketmq.client.impl.producer.TopicPublishInfo
+     * @author chenqi
+     * @date 2020/12/23 13:30
+     */
     public static TopicPublishInfo topicRouteData2TopicPublishInfo(final String topic, final TopicRouteData route) {
         TopicPublishInfo info = new TopicPublishInfo();
         info.setTopicRouteData(route);
@@ -619,10 +627,12 @@ public class MQClientInstance {
                             }
                         }
                     } else {
+                        //根据topic从NameServer之中返回路由信息
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, 1000 * 3);
                     }
                     if (topicRouteData != null) {
                         TopicRouteData old = this.topicRouteTable.get(topic);
+                        //判断新老路由数据是否一致
                         boolean changed = topicRouteDataIsChange(old, topicRouteData);
                         if (!changed) {
                             changed = this.isNeedUpdateTopicRouteInfo(topic);
@@ -630,6 +640,7 @@ public class MQClientInstance {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
                         }
 
+                        //如果新老路由数据不一致,则需要更新pub和sub的路由信息
                         if (changed) {
                             TopicRouteData cloneTopicRouteData = topicRouteData.cloneTopicRouteData();
 

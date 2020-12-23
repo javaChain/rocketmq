@@ -59,7 +59,7 @@ public class BrokerStartup {
      * @param args
      * @return void
      * @author chenqi
-     * @date 2020/12/22 16:53
+     * @date 2020/12/23 09:19
      */
     public static void main(String[] args) {
         start(createBrokerController(args));
