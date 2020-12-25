@@ -431,6 +431,24 @@ public class MQClientAPIImpl {
         return sendMessage(addr, brokerName, msg, requestHeader, timeoutMillis, communicationMode, null, null, null, 0, context, producer);
     }
 
+    /**
+     * netty网络层面的
+     * @param addr
+     * @param brokerName
+     * @param msg
+     * @param requestHeader
+     * @param timeoutMillis
+     * @param communicationMode
+     * @param sendCallback
+     * @param topicPublishInfo
+     * @param instance
+     * @param retryTimesWhenSendFailed
+     * @param context
+     * @param producer
+     * @return org.apache.rocketmq.client.producer.SendResult
+     * @author chenqi
+     * @date 2020/12/25 11:17
+     */
     public SendResult sendMessage(
         final String addr,
         final String brokerName,
@@ -446,8 +464,10 @@ public class MQClientAPIImpl {
         final DefaultMQProducerImpl producer
     ) throws RemotingException, MQBrokerException, InterruptedException {
         long beginStartTime = System.currentTimeMillis();
+        //远程命令,所有的请求参数,还有方法体都包含在这RemotingCommand里面
         RemotingCommand request = null;
         String msgType = msg.getProperty(MessageConst.PROPERTY_MESSAGE_TYPE);
+        //RocketMQ 事务消息
         boolean isReply = msgType != null && msgType.equals(MixAll.REPLY_MESSAGE_FLAG);
         if (isReply) {
             if (sendSmartMsg) {
@@ -464,6 +484,8 @@ public class MQClientAPIImpl {
                 request = RemotingCommand.createRequestCommand(RequestCode.SEND_MESSAGE, requestHeader);
             }
         }
+
+        //方法也set进去
         request.setBody(msg.getBody());
 
         switch (communicationMode) {
@@ -493,6 +515,17 @@ public class MQClientAPIImpl {
         return null;
     }
 
+    /**
+     * 同步发送消息并接受返回值
+     * @param addr
+     * @param brokerName
+     * @param msg
+     * @param timeoutMillis
+     * @param request 所的的请求参数都封装在request里面
+     * @return org.apache.rocketmq.client.producer.SendResult
+     * @author chenqi
+     * @date 2020/12/25 13:55
+     */
     private SendResult sendMessageSync(
         final String addr,
         final String brokerName,
@@ -500,6 +533,7 @@ public class MQClientAPIImpl {
         final long timeoutMillis,
         final RemotingCommand request
     ) throws RemotingException, MQBrokerException, InterruptedException {
+        //发送同步请求
         RemotingCommand response = this.remotingClient.invokeSync(addr, request, timeoutMillis);
         assert response != null;
         return this.processSendResponse(brokerName, msg, response);

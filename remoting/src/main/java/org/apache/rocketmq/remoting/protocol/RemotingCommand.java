@@ -85,6 +85,15 @@ public class RemotingCommand {
     protected RemotingCommand() {
     }
 
+    /**
+     * SendMessageRequestHeader implements CommandCustomHeader
+     * 将请求头SendMessageRequestHeader设置进入RemotingCommand构造请求
+     * @param code
+     * @param customHeader
+     * @return org.apache.rocketmq.remoting.protocol.RemotingCommand
+     * @author chenqi
+     * @date 2020/12/25 14:27
+     */
     public static RemotingCommand createRequestCommand(int code, CommandCustomHeader customHeader) {
         RemotingCommand cmd = new RemotingCommand();
         cmd.setCode(code);

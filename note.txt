@@ -74,10 +74,6 @@ for (int i = 0; i < qd.getWriteQueueNums(); i++) {
     info.getMessageQueueList().add(mq);
 }
 
-
-
-
-
  //选择一个MessageQueue
  MessageQueue mqSelected = this.selectOneMessageQueue(topicPublishInfo, lastBrokerName);
  当sendLatencyFaultEnable=true 延迟发送, 路由计算是:sendWhichQueue++%messageQueue.size()数量
@@ -88,3 +84,28 @@ for (int i = 0; i < qd.getWriteQueueNums(); i++) {
 
  消息发送核心api
  - sendResult = this.sendKernelImpl(msg, mq, communicationMode, sendCallback, topicPublishInfo, timeout - costTime);
+-> sendKernelImpl()这个很重要,里面封装把本地请求SendMessageRequestHeader(SendMessageRequestHeader implements CommandCustomHeader)
+然后MQClientAPIImpl里面调用RemotingCommand.createRequestCommand()将SendMessageRequestHeader的请求头放入RemotingRequest,
+后面会通过netty的channel.writeAndFlush(request) 进行请求发送.
+
+
+
+
+
+
+
+
+
+producer消息的类型:
+1. 普通消息(批量)
+2. 顺序消息
+3. 事务消息
+4. 延迟消息
+
+broker:
+1. 物理存储文件分析
+2. 文件清理策略
+
+consumer:
+1. 消息重试与死信队列
+2. 消费者负载与rebalance
