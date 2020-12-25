@@ -88,6 +88,14 @@ for (int i = 0; i < qd.getWriteQueueNums(); i++) {
 然后MQClientAPIImpl里面调用RemotingCommand.createRequestCommand()将SendMessageRequestHeader的请求头放入RemotingRequest,
 后面会通过netty的channel.writeAndFlush(request) 进行请求发送.
 
+上面看源码已经知道了producer发送消息到了broker,接下来我们看一下broker是如何处理的?
+根据RequestCode.SEND_REPLY_MESSAGE进行匹配ReplyMessageProcessor#processRequest()
+1. 首先检查消息是否合理
+2. 消息重试是否达到最大重试次数,进入死信队列%DLQ%+消费组名
+3. 调用PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);存储消息
+
+
+
 
 
 

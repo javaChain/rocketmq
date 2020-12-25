@@ -163,6 +163,15 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
         return response;
     }
 
+    /**
+     * broker接收到msg
+     * @param ctx
+     * @param requestHeader
+     * @param response
+     * @return org.apache.rocketmq.remoting.protocol.RemotingCommand
+     * @author chenqi
+     * @date 2020/12/25 16:04
+     */
     protected RemotingCommand msgCheck(final ChannelHandlerContext ctx,
         final SendMessageRequestHeader requestHeader, final RemotingCommand response) {
         if (!PermName.isWriteable(this.brokerController.getBrokerConfig().getBrokerPermission())
