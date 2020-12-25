@@ -705,6 +705,13 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             null).setResponseCode(ClientErrorCode.NOT_FOUND_TOPIC_EXCEPTION);
     }
 
+    /**
+     * 根据主题查找路由信息
+     * @param topic
+     * @return org.apache.rocketmq.client.impl.producer.TopicPublishInfo
+     * @author chenqi
+     * @date 2020/12/23 17:33
+     */
     private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
         //先从本地的topicPublishInfoTable中根据topic 路由查找路由信息
         //如果没有就创建一个TopicPublishInfo 并且在本地的topicPublishInfoTable存放一份,然后同步更新NameServer,最后返回

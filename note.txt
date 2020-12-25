@@ -62,10 +62,20 @@ producer启动流程:
     // Start push service
     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
 
--  SendResult sendResult = producer.send(msg);
+-  SendResult sendResult = producer.send(msg); 发送消息要先通过topic找到路由信息,然后找到对应的队列进行消息发送
+具体如下:
 this.defaultMQProducerImpl.send(msg) -> DefaultMQProducerImpl#sendDefaultImpl() ->
+TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
+tryToFindTopicPublishInfo() 根据主题查找路由信息 -> 深入进去updateTopicRouteInfoFromNameServer() 从NameServer之中找到
+路由信息之后,需要和本地缓存的topicRouteTable找到的TopicRouteData路由数据比较,如果数据改变了,会分别更新pub/sub的的路由信息.
+topicRouteData2TopicPublishInfo(topic, topicRouteData);
+for (int i = 0; i < qd.getWriteQueueNums(); i++) {
+    MessageQueue mq = new MessageQueue(topic, qd.getBrokerName(), i);
+    info.getMessageQueueList().add(mq);
+}
 
- TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
+
+
 
 
  //选择一个MessageQueue

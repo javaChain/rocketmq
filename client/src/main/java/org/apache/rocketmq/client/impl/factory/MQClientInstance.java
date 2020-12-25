@@ -181,6 +181,9 @@ public class MQClientInstance {
 
             info.setOrderTopic(true);
         } else {
+            //因为路由信息与本地缓存不一致,所以消息需要重新构造,路由到对应的messageQueue
+            //遍历QueueData,找到写节点,获得qd.getWriteQueueNums()
+            //设置主题/brokerName/queueId到MessageQueue
             List<QueueData> qds = route.getQueueDatas();
             Collections.sort(qds);
             for (QueueData qd : qds) {
@@ -200,7 +203,8 @@ public class MQClientInstance {
                     if (!brokerData.getBrokerAddrs().containsKey(MixAll.MASTER_ID)) {
                         continue;
                     }
-
+                    //这段代码要细品,意味着根据topic和brokerName和queueId重新构造一个MessageQueue
+                    //然后添加到路由信息TopicPublishInfo表之中
                     for (int i = 0; i < qd.getWriteQueueNums(); i++) {
                         MessageQueue mq = new MessageQueue(topic, qd.getBrokerName(), i);
                         info.getMessageQueueList().add(mq);
@@ -610,6 +614,15 @@ public class MQClientInstance {
         }
     }
 
+    /**
+     * 根据主题从NameServer查找路由信息
+     * @param topic
+     * @param isDefault
+     * @param defaultMQProducer
+     * @return boolean
+     * @author chenqi
+     * @date 2020/12/23 17:33
+     */
     public boolean updateTopicRouteInfoFromNameServer(final String topic, boolean isDefault,
         DefaultMQProducer defaultMQProducer) {
         try {
@@ -621,13 +634,14 @@ public class MQClientInstance {
                             1000 * 3);
                         if (topicRouteData != null) {
                             for (QueueData data : topicRouteData.getQueueDatas()) {
+                                //设置topicRouteData.getQueueDatas()里面data对象里面读写队列值
                                 int queueNums = Math.min(defaultMQProducer.getDefaultTopicQueueNums(), data.getReadQueueNums());
                                 data.setReadQueueNums(queueNums);
                                 data.setWriteQueueNums(queueNums);
                             }
                         }
                     } else {
-                        //根据topic从NameServer之中返回路由信息
+                        //通过netty网络调用->根据topic从NameServer之中返回路由信息
                         topicRouteData = this.mQClientAPIImpl.getTopicRouteInfoFromNameServer(topic, 1000 * 3);
                     }
                     if (topicRouteData != null) {
@@ -635,6 +649,7 @@ public class MQClientInstance {
                         //判断新老路由数据是否一致
                         boolean changed = topicRouteDataIsChange(old, topicRouteData);
                         if (!changed) {
+
                             changed = this.isNeedUpdateTopicRouteInfo(topic);
                         } else {
                             log.info("the topic[{}] route info changed, old[{}] ,new[{}]", topic, old, topicRouteData);
