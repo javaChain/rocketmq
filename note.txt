@@ -63,6 +63,9 @@ producer启动流程:
     this.defaultMQProducer.getDefaultMQProducerImpl().start(false);
 
 -  SendResult sendResult = producer.send(msg); 发送消息要先通过topic找到路由信息,然后找到对应的队列进行消息发送
+查找路由信息 首先遍历broker然后遍历ConsumerQueue,所以如果是集群,查找的结构应该是:
+broker-a-0,broker-a-1,broker-b-0,broker-b-1
+
 具体如下:
 this.defaultMQProducerImpl.send(msg) -> DefaultMQProducerImpl#sendDefaultImpl() ->
 TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
@@ -93,6 +96,20 @@ for (int i = 0; i < qd.getWriteQueueNums(); i++) {
 1. 首先检查消息是否合理
 2. 消息重试是否达到最大重试次数,进入死信队列%DLQ%+消费组名
 3. 调用PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);存储消息
+
+RocketMQ存储核心
+三大组件:
+CommitLog: 存储所有topic的消息文件
+ConsumerQueue: CommitLog offset,文件大小size, tag hashcode. 主要用来给消费者消费的消息队列.消息到达CommitLog文件之后,将异步转发
+到消息消费队列,给消息 消费者消费.
+IndexFile: hash结构,key为hashcode,value为CommitLog offset. 消息索引文件
+
+猜测IndexFile应该是索引文件,传递key的hashcode 直接找到CommitLog的消息文件
+
+- PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
+从上面这行进行分析:
+
+
 
 
 

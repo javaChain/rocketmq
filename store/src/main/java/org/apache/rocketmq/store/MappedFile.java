@@ -196,12 +196,20 @@ public class MappedFile extends ReferenceResource {
         return appendMessagesInner(messageExtBatch, cb);
     }
 
+    /**
+     * 将消息追加到MappedFile中
+     * @param messageExt
+     * @param cb
+     * @return org.apache.rocketmq.store.AppendMessageResult
+     * @author chenqi
+     * @date 2020/12/26 13:41
+    */
     public AppendMessageResult appendMessagesInner(final MessageExt messageExt, final AppendMessageCallback cb) {
         assert messageExt != null;
         assert cb != null;
-
+        //获取当前写的位置
         int currentPos = this.wrotePosition.get();
-
+        //如果当前位置小于文件大小
         if (currentPos < this.fileSize) {
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);

@@ -63,33 +63,102 @@ import org.apache.rocketmq.store.index.QueryOffsetResult;
 import org.apache.rocketmq.store.schedule.ScheduleMessageService;
 import org.apache.rocketmq.store.stats.BrokerStatsManager;
 
+/**
+ *默认的消息存储类
+ * @date 2020/12/26 12:54
+*/
 public class DefaultMessageStore implements MessageStore {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
-
+    /**
+     * 消息存储配置属性
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 12:54
+    */
     private final MessageStoreConfig messageStoreConfig;
-    // CommitLog
+    /**
+     * CommitLog 文件存储实现类
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 12:56
+    */ 
     private final CommitLog commitLog;
-
+    /**
+     * 消息队列缓存表
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 12:56
+    */
     private final ConcurrentMap<String/* topic */, ConcurrentMap<Integer/* queueId */, ConsumeQueue>> consumeQueueTable;
-
+    /**
+     * 消息队列文件文件ConsumeQueue刷盘线程
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 12:57
+    */
     private final FlushConsumeQueueService flushConsumeQueueService;
-
+    /**
+     * 清除CommitLog文件服务
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 12:57
+    */
     private final CleanCommitLogService cleanCommitLogService;
-
+    /**
+     * 清除ConsumeQueue文件服务
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 12:59
+    */
     private final CleanConsumeQueueService cleanConsumeQueueService;
-
+    /**
+     * 索引文件实现类
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 12:59
+    */
     private final IndexService indexService;
-
+    /**
+     * MappedFile 分配服务
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 13:00
+    */
     private final AllocateMappedFileService allocateMappedFileService;
-
+    /**
+     * CommitLog消息分发:根据CommitLog文件构建ConsumeQueue,IndexFile文件
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 13:00
+    */
     private final ReputMessageService reputMessageService;
-
+    /**
+     * 存储HA机制
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 13:02
+    */
     private final HAService haService;
 
     private final ScheduleMessageService scheduleMessageService;
 
     private final StoreStatsService storeStatsService;
-
+    /**
+     * 消息堆内存缓存
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 13:04
+    */
     private final TransientStorePool transientStorePool;
 
     private final RunningFlags runningFlags = new RunningFlags();
@@ -98,15 +167,41 @@ public class DefaultMessageStore implements MessageStore {
     private final ScheduledExecutorService scheduledExecutorService =
         Executors.newSingleThreadScheduledExecutor(new ThreadFactoryImpl("StoreScheduledThread"));
     private final BrokerStatsManager brokerStatsManager;
+    /**
+     * 消息拉取长轮询模式消息达到监视器
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 13:05
+    */
     private final MessageArrivingListener messageArrivingListener;
+    /**
+     * Broker配置属性
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 13:04
+    */
     private final BrokerConfig brokerConfig;
 
     private volatile boolean shutdown = true;
-
+    /**
+     * 文件刷盘监测点
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 13:05
+    */
     private StoreCheckpoint storeCheckpoint;
 
     private AtomicLong printTimes = new AtomicLong(0);
-
+    /**
+     * CommitLog文件转发请求
+     * @param null
+     * @return 
+     * @author chenqi
+     * @date 2020/12/26 13:05
+    */
     private final LinkedList<CommitLogDispatcher> dispatcherList;
 
     private RandomAccessFile lockFile;
@@ -473,8 +568,16 @@ public class DefaultMessageStore implements MessageStore {
         return resultFuture;
     }
 
+    /**
+     * 文件存储
+     * @param msg
+     * @return org.apache.rocketmq.store.PutMessageResult
+     * @author chenqi
+     * @date 2020/12/26 13:11
+    */
     @Override
     public PutMessageResult putMessage(MessageExtBrokerInner msg) {
+        //消息状态校验
         PutMessageStatus checkStoreStatus = this.checkStoreStatus();
         if (checkStoreStatus != PutMessageStatus.PUT_OK) {
             return new PutMessageResult(checkStoreStatus, null);
@@ -486,6 +589,7 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         long beginTime = this.getSystemClock().now();
+        //调用CommitLog.putMessage(msg)
         PutMessageResult result = this.commitLog.putMessage(msg);
         long elapsedTime = this.getSystemClock().now() - beginTime;
         if (elapsedTime > 500) {
