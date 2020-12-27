@@ -119,7 +119,7 @@ AppendMessageResult result = new AppendMessageResult(AppendMessageStatus.PUT_OK,
                 msgInner.getStoreTimestamp(), queueOffset, CommitLog.this.defaultMessageStore.now() - beginTimeMills);
 会先将消息追加在内存中等待刷盘.
 
-
+~~上面以前都是txt格式,后面会改为md格式放图以后好回顾~~
 
 
  //执行刷盘操作
