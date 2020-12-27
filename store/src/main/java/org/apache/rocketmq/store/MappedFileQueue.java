@@ -29,21 +29,37 @@ import org.apache.rocketmq.common.constant.LoggerName;
 import org.apache.rocketmq.logging.InternalLogger;
 import org.apache.rocketmq.logging.InternalLoggerFactory;
 
+/**
+ * 存储目录的封装
+ */
 public class MappedFileQueue {
     private static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     private static final InternalLogger LOG_ERROR = InternalLoggerFactory.getLogger(LoggerName.STORE_ERROR_LOGGER_NAME);
 
     private static final int DELETE_FILES_BATCH_MAX = 10;
-
+    /**
+     * 存储路径
+     */
     private final String storePath;
-
+    /**
+     * 单个文件存储大小
+     */
     private final int mappedFileSize;
-
+    /**
+     * MappedFile文件集合
+     */
     private final CopyOnWriteArrayList<MappedFile> mappedFiles = new CopyOnWriteArrayList<MappedFile>();
-
+    /**
+     * 创建MappedFile服务类
+     */
     private final AllocateMappedFileService allocateMappedFileService;
-
+    /**
+     * 当前刷盘指针,表示该指针之前的所有数据全部持久化到磁盘
+     */
     private long flushedWhere = 0;
+    /**
+     * 当前提交数据的指针,内存中ByteBuff当前的写指针
+     */
     private long committedWhere = 0;
 
     private volatile long storeTimestamp = 0;
@@ -74,6 +90,13 @@ public class MappedFileQueue {
         }
     }
 
+    /**
+     * 根据消息存储时间戳来查找MappedFile
+     * @param timestamp
+     * @return org.apache.rocketmq.store.MappedFile
+     * @author chenqi
+     * @date 2020/12/27 11:43
+    */
     public MappedFile getMappedFileByTime(final long timestamp) {
         Object[] mfs = this.copyMappedFiles(0);
 
@@ -285,6 +308,12 @@ public class MappedFileQueue {
         return true;
     }
 
+    /**
+     * 获得最小偏移量
+     * @return long
+     * @author chenqi
+     * @date 2020/12/27 11:43
+    */
     public long getMinOffset() {
 
         if (!this.mappedFiles.isEmpty()) {
@@ -298,7 +327,12 @@ public class MappedFileQueue {
         }
         return -1;
     }
-
+    /**
+     * 获得最大偏移量
+     * @return long
+     * @author chenqi
+     * @date 2020/12/27 11:45
+    */
     public long getMaxOffset() {
         MappedFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
@@ -306,7 +340,12 @@ public class MappedFileQueue {
         }
         return 0;
     }
-
+    /**
+     * 返回最大的写入位置
+     * @return long
+     * @author chenqi
+     * @date 2020/12/27 12:13
+    */
     public long getMaxWrotePosition() {
         MappedFile mappedFile = getLastMappedFile();
         if (mappedFile != null) {
@@ -518,7 +557,13 @@ public class MappedFileQueue {
 
         return mappedFileFirst;
     }
-
+    /**
+     * 根据偏移量查找MappedFile
+     * @param offset
+     * @return org.apache.rocketmq.store.MappedFile
+     * @author chenqi
+     * @date 2020/12/27 11:45
+    */
     public MappedFile findMappedFileByOffset(final long offset) {
         return findMappedFileByOffset(offset, false);
     }

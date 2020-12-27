@@ -92,10 +92,13 @@ for (int i = 0; i < qd.getWriteQueueNums(); i++) {
 后面会通过netty的channel.writeAndFlush(request) 进行请求发送.
 
 上面看源码已经知道了producer发送消息到了broker,接下来我们看一下broker是如何处理的?
-根据RequestCode.SEND_REPLY_MESSAGE进行匹配ReplyMessageProcessor#processRequest()
+根据RequestCode.SEND_MESSAGE_V2进行匹配到rocketmq-broker服务的AbstractSendMessageProcessor#parseRequestHeader,
+SendMessageProcessor#asyncProcessRequest()调用了parseRequestHeader() ->
+SendMessageRequestHeader requestHeader = parseRequestHeader(request);
+->asyncSendMessage()
 1. 首先检查消息是否合理
 2. 消息重试是否达到最大重试次数,进入死信队列%DLQ%+消费组名
-3. 调用PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);存储消息
+3. 调用putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner); //存储消息
 
 RocketMQ存储核心
 三大组件:
@@ -106,9 +109,23 @@ IndexFile: hash结构,key为hashcode,value为CommitLog offset. 消息索引文�
 
 猜测IndexFile应该是索引文件,传递key的hashcode 直接找到CommitLog的消息文件
 
-- PutMessageResult putMessageResult = this.brokerController.getMessageStore().putMessage(msgInner);
+//DefaultMessageStore#asyncPutMessage()
+- putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
+-
 从上面这行进行分析:
+存储消息会调用CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
+这里实现类为CommitLog的asyncPutMessage(msg);,然后处理消息的字段,处理CommitLog offset的逻辑,
+AppendMessageResult result = new AppendMessageResult(AppendMessageStatus.PUT_OK, wroteOffset, msgLen, msgId,
+                msgInner.getStoreTimestamp(), queueOffset, CommitLog.this.defaultMessageStore.now() - beginTimeMills);
+会先将消息追加在内存中等待刷盘.
 
+
+
+
+ //执行刷盘操作
+handleDiskFlush(result, putMessageResult, msg);
+//执行HA主从复制
+ handleHA(result, putMessageResult, msg);
 
 
 

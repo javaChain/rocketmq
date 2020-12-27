@@ -786,6 +786,7 @@ public class CommitLog {
         // Back to Results
         AppendMessageResult result = null;
 
+        //获得存储服务
         StoreStatsService storeStatsService = this.defaultMessageStore.getStoreStatsService();
 
         String topic = msg.getTopic();

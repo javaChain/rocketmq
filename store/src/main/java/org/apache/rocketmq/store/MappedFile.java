@@ -42,27 +42,71 @@ import org.apache.rocketmq.store.util.LibC;
 import sun.nio.ch.DirectBuffer;
 
 public class MappedFile extends ReferenceResource {
+    /**
+     * 操作系统每页大小
+     */
     public static final int OS_PAGE_SIZE = 1024 * 4;
     protected static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
 
+    /**
+     * 当前JVM实例中Mapped-File虚拟内存
+     */
     private static final AtomicLong TOTAL_MAPPED_VIRTUAL_MEMORY = new AtomicLong(0);
-
+    /**
+     * 当前JVM实例中MappedFile对象个数
+     */
     private static final AtomicInteger TOTAL_MAPPED_FILES = new AtomicInteger(0);
+    /**
+     * 当前改文件的写指针
+     */
     protected final AtomicInteger wrotePosition = new AtomicInteger(0);
+    /**
+     * 当前文件的提交指针
+     */
     protected final AtomicInteger committedPosition = new AtomicInteger(0);
+    /**
+     * 刷写道磁盘指针,该指针之前的数据持久化到磁盘中
+     */
     private final AtomicInteger flushedPosition = new AtomicInteger(0);
+    /**
+     * 文件大小
+     */
     protected int fileSize;
+    /**
+     * 文件通道
+     */
     protected FileChannel fileChannel;
     /**
      * Message will put to here first, and then reput to FileChannel if writeBuffer is not null.
      */
     protected ByteBuffer writeBuffer = null;
+    /**
+     * 堆内存池
+     */
     protected TransientStorePool transientStorePool = null;
+    /**
+     * 文件名称
+     */
     private String fileName;
+    /**
+     * 该文件的初始偏移量
+     */
     private long fileFromOffset;
+    /**
+     * 物理文件
+     */
     private File file;
+    /**
+     * 物理文件对应的内存映射buffer
+     */
     private MappedByteBuffer mappedByteBuffer;
+    /**
+     * 文件最后一次内容写入的时间
+     */
     private volatile long storeTimestamp = 0;
+    /**
+     * 是否是MappedFileQueue队列中的第一个文件
+     */
     private boolean firstCreateInQueue = false;
 
     public MappedFile() {
