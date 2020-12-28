@@ -257,6 +257,8 @@ public class MappedFile extends ReferenceResource {
         int currentPos = this.wrotePosition.get();
         //如果当前位置小于文件大小
         if (currentPos < this.fileSize) {
+            // writeBuffer不为空则取 writeBuffer 剩下的空间，否则取 mappedByteBuffer 剩下的空间
+            // writeBuffer 的 赋值在 init 方法，构造时不使用 TransientStorePool ，writeBuffeer 为 null
             ByteBuffer byteBuffer = writeBuffer != null ? writeBuffer.slice() : this.mappedByteBuffer.slice();
             byteBuffer.position(currentPos);
             AppendMessageResult result;
@@ -348,11 +350,19 @@ public class MappedFile extends ReferenceResource {
         return this.getFlushedPosition();
     }
 
+    /**
+     * 提交数据到磁盘
+     * @param commitLeastPages 最小提交页数
+     * @return int
+     * @author chenqi
+     * @date 2020/12/28 19:21
+    */
     public int commit(final int commitLeastPages) {
         if (writeBuffer == null) {
             //no need to commit data to file channel, so just regard wrotePosition as committedPosition.
             return this.wrotePosition.get();
         }
+        //判断是否能提交
         if (this.isAbleToCommit(commitLeastPages)) {
             if (this.hold()) {
                 commit0(commitLeastPages);
@@ -375,12 +385,19 @@ public class MappedFile extends ReferenceResource {
         int writePos = this.wrotePosition.get();
         int lastCommittedPosition = this.committedPosition.get();
 
+        //判断还有未提交的数据
         if (writePos - this.committedPosition.get() > 0) {
             try {
+                //writeBuffer在appendMessagesInner()的逻辑中进行过赋值
+                //创建writeBuffer的共享缓存区
                 ByteBuffer byteBuffer = writeBuffer.slice();
+                //设置position位置
                 byteBuffer.position(lastCommittedPosition);
+                //设置limit
                 byteBuffer.limit(writePos);
+                //把lastCommittedPosition写入发哦FileChannelPosition中
                 this.fileChannel.position(lastCommittedPosition);
+                //写入数据到
                 this.fileChannel.write(byteBuffer);
                 this.committedPosition.set(writePos);
             } catch (Throwable e) {
@@ -408,14 +425,17 @@ public class MappedFile extends ReferenceResource {
         int flush = this.committedPosition.get();
         int write = this.wrotePosition.get();
 
+        //如果当前文件满了 也需要commit,返回true
         if (this.isFull()) {
             return true;
         }
 
+        //当前数据大于最小提交的页数 需要commit
         if (commitLeastPages > 0) {
             return ((write / OS_PAGE_SIZE) - (flush / OS_PAGE_SIZE)) >= commitLeastPages;
         }
 
+        //写数据的指针大于提交的数据 需要commit
         return write > flush;
     }
 

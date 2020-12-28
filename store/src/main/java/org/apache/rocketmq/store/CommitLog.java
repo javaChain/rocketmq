@@ -986,6 +986,7 @@ public class CommitLog {
         }
         // Asynchronous flush
         else {
+            //如果 堆外内存没有开启
             if (!this.defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                 flushCommitLogService.wakeup();
             } else {
@@ -1272,9 +1273,11 @@ public class CommitLog {
                 try {
                     boolean result = CommitLog.this.mappedFileQueue.commit(commitDataLeastPages);
                     long end = System.currentTimeMillis();
+                    //判断是否应该刷盘,根据上面commit的提交来判断的,如果为false就需要刷盘
                     if (!result) {
                         this.lastCommitTimestamp = end; // result = false means some data committed.
                         //now wake up flush thread.
+                        //唤醒刷盘服务
                         flushCommitLogService.wakeup();
                     }
 
@@ -1287,6 +1290,7 @@ public class CommitLog {
                 }
             }
 
+            //重试提交
             boolean result = false;
             for (int i = 0; i < RETRY_TIMES_OVER && !result; i++) {
                 result = CommitLog.this.mappedFileQueue.commit(0);

@@ -1,8 +1,13 @@
+# RocketMQ源码解读
+
 >源码debug:
+>
 >1. 首先github下载rocketmq的4.7.1的代码
 >2. 配置nameserver(NamesrvController),broker(BrokerStartup)的ROCKET_HOME环境变量和
-	program argument -c "E:\Program Files\rocketmq-all-4.7.1-bin-release\conf\broker.conf"
+>program argument -c "E:\Program Files\rocketmq-all-4.7.1-bin-release\conf\broker.conf"
 >3.	依次启动namesrv/broker/producer/consumer
+
+![image-20201228195616173](note_images\image-20201228195616173.png)
 
 
 
@@ -14,16 +19,16 @@
 - 读队列和写队列是如何工作的?
 - consumer是如何定位到哪一个读队列,producer怎么选择哪一个写队列?
 
-
 #第二章
 NameServer如何保持一致?
+
     1. 服务注册(broker新增): broker启动的时候会向NameServer注册自己的信息
-    2. 服务剔除(broker关闭或宕机):
+        2. 服务剔除(broker关闭或宕机):
        - broker主动关闭 会调用方法RouteInfoManager#unregisterBroker()
        - broker宕机 NameServer每隔10S会发送心跳包给broker探活,如果120s内没有回复则剔除broker
-    3. 路由发现: producer/consumer 启动会主动拉取最新的路由
+        3. 路由发现: producer/consumer 启动会主动拉取最新的路由
 NameServer相互不通信如何保证一致?
-    nameserver 集群之间不需要通信,broker服务启动的时候会向每一个NameServer注册自己的信息, producer会从NameServer之中获取broker的服务器信息
+        nameserver 集群之间不需要通信,broker服务启动的时候会向每一个NameServer注册自己的信息, producer会从NameServer之中获取broker的服务器信息
 
 nameserver 动态路由发现与剔除机制?
     ap/cp 选型 zookeeper是cp的 强一致性,那么server是ap高可用,软一致性
@@ -137,7 +142,7 @@ handleDiskFlush(result, putMessageResult, msg);
 MappedFileQueue是MappedFile的文件管理容器,MappedFileQueue是对存储目录的封装.例如:CommitLog的存储目录为
 ${ROCKETMQ_HOME}/store/commitlog,该目录下会存在多个内存映射文件MappedFile.
 
-![image-20201228154146677](note_images/image-20201228154146677.png)
+![image-20201228201320180](note_images/image-20201228201320180.png)
 
 #### MappedFile
 
@@ -253,64 +258,101 @@ private void init(final String fileName, final int fileSize) throws IOException 
 
 现在已经知道MappedFile的文件的创建和内存映射,那么如何刷盘呢?
 
-` handleHA(result, putMessageResult, msg);`找到异步刷盘`commitLogService.wakeup();`继续跟踪
+` handleDiskFlush(result, putMessageResult, msg);`找到异步提交和刷盘`commitLogService.wakeup();`继续跟踪
 
 ```java
-class CommitRealTimeService extends FlushCommitLogService {
+public void handleDiskFlush(AppendMessageResult result, PutMessageResult putMessageResult, MessageExt messageExt) {
+	// 上面省略
+    // Asynchronous flush
+    else {
+            //如果 堆外内存没有开启
+            if (!this.defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
+                flushCommitLogService.wakeup();//进入
+            } else {
+                commitLogService.wakeup();
+            }
+        }
+}
+```
 
-        private long lastCommitTimestamp = 0;
-
-        @Override
-        public String getServiceName() {
-            return CommitRealTimeService.class.getSimpleName();
+```java
+public boolean commit(final int commitLeastPages) {
+        boolean result = true;
+        //通过offset找到MappedFile
+        MappedFile mappedFile = this.findMappedFileByOffset(this.committedWhere, this.committedWhere == 0);
+        if (mappedFile != null) {
+            //主要看commit
+            int offset = mappedFile.commit(commitLeastPages);
+            long where = mappedFile.getFileFromOffset() + offset;
+            result = where == this.committedWhere;
+            this.committedWhere = where;
         }
 
-        @Override
-        public void run() {
-            CommitLog.log.info(this.getServiceName() + " service started");
-            while (!this.isStopped()) {
-                int interval = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitIntervalCommitLog();
+        return result;
+    }
+```
 
-                int commitDataLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogLeastPages();
-
-                int commitDataThoroughInterval =
-                    CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogThoroughInterval();
-
-                long begin = System.currentTimeMillis();
-                if (begin >= (this.lastCommitTimestamp + commitDataThoroughInterval)) {
-                    this.lastCommitTimestamp = begin;
-                    commitDataLeastPages = 0;
-                }
-
-                try {
-                    boolean result = CommitLog.this.mappedFileQueue.commit(commitDataLeastPages);
-                    long end = System.currentTimeMillis();
-                    if (!result) {
-                        this.lastCommitTimestamp = end; // result = false means some data committed.
-                        //now wake up flush thread.
-                        flushCommitLogService.wakeup();
-                    }
-
-                    if (end - begin > 500) {
-                        log.info("Commit data to file costs {} ms", end - begin);
-                    }
-                    this.waitForRunning(interval);
-                } catch (Throwable e) {
-                    CommitLog.log.error(this.getServiceName() + " service has exception. ", e);
-                }
+```java
+/**
+     * 提交数据到磁盘
+     * @param commitLeastPages 最小提交页数
+     * @return int
+     * @author chenqi
+     * @date 2020/12/28 19:21
+    */
+    public int commit(final int commitLeastPages) {
+        if (writeBuffer == null) {
+            //no need to commit data to file channel, so just regard wrotePosition as committedPosition.
+            return this.wrotePosition.get();
+        }
+        //判断是否能提交
+        if (this.isAbleToCommit(commitLeastPages)) {
+            if (this.hold()) {
+                commit0(commitLeastPages); 
+                this.release();
+            } else {
+                log.warn("in commit, hold failed, commit offset = " + this.committedPosition.get());
             }
+        }
 
-            boolean result = false;
-            for (int i = 0; i < RETRY_TIMES_OVER && !result; i++) {
-                result = CommitLog.this.mappedFileQueue.commit(0);
-                CommitLog.log.info(this.getServiceName() + " service shutdown, retry " + (i + 1) + " times " + (result ? "OK" : "Not OK"));
+        // All dirty data has been committed to FileChannel.
+        if (writeBuffer != null && this.transientStorePool != null && this.fileSize == this.committedPosition.get()) {
+            this.transientStorePool.returnBuffer(writeBuffer);
+            this.writeBuffer = null;
+        }
+
+        return this.committedPosition.get();
+    }
+
+    protected void commit0(final int commitLeastPages) {
+        int writePos = this.wrotePosition.get();
+        int lastCommittedPosition = this.committedPosition.get();
+
+        //判断还有未提交的数据
+        if (writePos - this.committedPosition.get() > 0) {
+            try {
+                //writeBuffer在appendMessagesInner()的逻辑中进行过赋值
+                //创建writeBuffer的共享缓存区
+                ByteBuffer byteBuffer = writeBuffer.slice();
+                //设置position位置
+                byteBuffer.position(lastCommittedPosition);
+                //设置limit
+                byteBuffer.limit(writePos);
+                //把lastCommittedPosition写入发哦FileChannelPosition中
+                this.fileChannel.position(lastCommittedPosition);
+                //写入数据到
+                this.fileChannel.write(byteBuffer);
+                this.committedPosition.set(writePos);
+            } catch (Throwable e) {
+                log.error("Error occurred when commit data to FileChannel.", e);
             }
-            CommitLog.log.info(this.getServiceName() + " service end");
         }
     }
 ```
 
+**GroupCommitService**
 
+broker启动后，会启动许多服务线程，包括刷盘服务线程，如果刷盘服务线程类型是SYNC_FLUSH （同步刷盘类型：对写入的数据同步刷盘，只在broker==master时使用），则开启GroupCommitService服务，该服务线程启动后每隔10毫秒或该线程调用了wakeup()方法后停止阻塞，执行doCommit()方法。doCommit里面执行具体的刷盘逻辑业务。GroupCommitService服务线程体如下：
 
 
 
