@@ -202,7 +202,9 @@ public class MappedFile extends ReferenceResource {
         ensureDirOK(this.file.getParent());
 
         try {
+            //创建读写文件通道
             this.fileChannel = new RandomAccessFile(this.file, "rw").getChannel();
+            //将文件内容使用NIO的内存映射Buffer将文件映射到内存中
             this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
             TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(fileSize);
             TOTAL_MAPPED_FILES.incrementAndGet();

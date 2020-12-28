@@ -117,11 +117,19 @@ IndexFile: hash结构,key为hashcode,value为CommitLog offset. 消息索引文�
 putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
 
 从上面这行进行分析:
+
 存储消息会调用`CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);`
 这里实现类为`CommitLog的asyncPutMessage(msg);`,然后处理消息的字段,处理CommitLog offset的逻辑,
 `AppendMessageResult result = new AppendMessageResult(AppendMessageStatus.PUT_OK, wroteOffset, msgLen, msgId,
               msgInner.getStoreTimestamp(), queueOffset, CommitLog.this.defaultMessageStore.now() - beginTimeMills);`
 会先将消息追加在内存中等待刷盘.
+
+ //执行刷盘操作
+handleDiskFlush(result, putMessageResult, msg);
+//执行HA主从复制
+ handleHA(result, putMessageResult, msg);
+
+
 
 ~~上面以前都是txt格式,后面会改为md格式放图以后好回顾~~
 
@@ -243,14 +251,68 @@ private void init(final String fileName, final int fileSize) throws IOException 
     }
 ```
 
+现在已经知道MappedFile的文件的创建和内存映射,那么如何刷盘呢?
+
+` handleHA(result, putMessageResult, msg);`找到异步刷盘`commitLogService.wakeup();`继续跟踪
+
+```java
+class CommitRealTimeService extends FlushCommitLogService {
+
+        private long lastCommitTimestamp = 0;
+
+        @Override
+        public String getServiceName() {
+            return CommitRealTimeService.class.getSimpleName();
+        }
+
+        @Override
+        public void run() {
+            CommitLog.log.info(this.getServiceName() + " service started");
+            while (!this.isStopped()) {
+                int interval = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitIntervalCommitLog();
+
+                int commitDataLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogLeastPages();
+
+                int commitDataThoroughInterval =
+                    CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogThoroughInterval();
+
+                long begin = System.currentTimeMillis();
+                if (begin >= (this.lastCommitTimestamp + commitDataThoroughInterval)) {
+                    this.lastCommitTimestamp = begin;
+                    commitDataLeastPages = 0;
+                }
+
+                try {
+                    boolean result = CommitLog.this.mappedFileQueue.commit(commitDataLeastPages);
+                    long end = System.currentTimeMillis();
+                    if (!result) {
+                        this.lastCommitTimestamp = end; // result = false means some data committed.
+                        //now wake up flush thread.
+                        flushCommitLogService.wakeup();
+                    }
+
+                    if (end - begin > 500) {
+                        log.info("Commit data to file costs {} ms", end - begin);
+                    }
+                    this.waitForRunning(interval);
+                } catch (Throwable e) {
+                    CommitLog.log.error(this.getServiceName() + " service has exception. ", e);
+                }
+            }
+
+            boolean result = false;
+            for (int i = 0; i < RETRY_TIMES_OVER && !result; i++) {
+                result = CommitLog.this.mappedFileQueue.commit(0);
+                CommitLog.log.info(this.getServiceName() + " service shutdown, retry " + (i + 1) + " times " + (result ? "OK" : "Not OK"));
+            }
+            CommitLog.log.info(this.getServiceName() + " service end");
+        }
+    }
+```
 
 
 
 
- //执行刷盘操作
-handleDiskFlush(result, putMessageResult, msg);
-//执行HA主从复制
- handleHA(result, putMessageResult, msg);
 
 
 
