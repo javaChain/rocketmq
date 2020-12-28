@@ -54,8 +54,11 @@ public class CommitLog {
     protected static final InternalLogger log = InternalLoggerFactory.getLogger(LoggerName.STORE_LOGGER_NAME);
     // End of file empty MAGIC CODE cbd43194
     protected final static int BLANK_MAGIC_CODE = -875286124;
+    //MappedFileQueue队列
     protected final MappedFileQueue mappedFileQueue;
+    //默认消息存储服务
     protected final DefaultMessageStore defaultMessageStore;
+    //刷写提交日志服务
     private final FlushCommitLogService flushCommitLogService;
 
     //If TransientStorePool enabled, we must flush message to FileChannel at fixed periods
@@ -564,6 +567,7 @@ public class CommitLog {
         // Back to Results
         AppendMessageResult result = null;
 
+        //获得存储服务
         StoreStatsService storeStatsService = this.defaultMessageStore.getStoreStatsService();
 
         String topic = msg.getTopic();

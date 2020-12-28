@@ -48,8 +48,10 @@ public class AllocateMappedFileService extends ServiceThread {
         this.messageStore = messageStore;
     }
 
+
     public MappedFile putRequestAndReturnMappedFile(String nextFilePath, String nextNextFilePath, int fileSize) {
         int canSubmitRequests = 2;
+        //是否有暂存池
         if (this.messageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
             if (this.messageStore.getMessageStoreConfig().isFastFailIfNoBufferInStorePool()
                 && BrokerRole.SLAVE != this.messageStore.getMessageStoreConfig().getBrokerRole()) { //if broker is slave, don't fast fail even no buffer in pool
@@ -57,7 +59,9 @@ public class AllocateMappedFileService extends ServiceThread {
             }
         }
 
+        //通过nextFilePath,fileSize构造AllocateRequest
         AllocateRequest nextReq = new AllocateRequest(nextFilePath, fileSize);
+        //如果保存在就放入队列
         boolean nextPutOK = this.requestTable.putIfAbsent(nextFilePath, nextReq) == null;
 
         if (nextPutOK) {
@@ -67,6 +71,7 @@ public class AllocateMappedFileService extends ServiceThread {
                 this.requestTable.remove(nextFilePath);
                 return null;
             }
+            //往队列里面插入数据
             boolean offerOK = this.requestQueue.offer(nextReq);
             if (!offerOK) {
                 log.warn("never expected here, add a request to preallocate queue failed");
@@ -142,6 +147,7 @@ public class AllocateMappedFileService extends ServiceThread {
 
     /**
      * Only interrupted by the external thread, will return false
+     * 执行run()的时候会调用mmapOperation()
      */
     private boolean mmapOperation() {
         boolean isSuccess = false;

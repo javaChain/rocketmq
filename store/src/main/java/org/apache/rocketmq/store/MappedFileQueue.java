@@ -182,6 +182,7 @@ public class MappedFileQueue {
                 }
 
                 try {
+                    //构造MappedFile
                     MappedFile mappedFile = new MappedFile(file.getPath(), mappedFileSize);
 
                     mappedFile.setWrotePosition(this.mappedFileSize);
@@ -214,7 +215,16 @@ public class MappedFileQueue {
         return 0;
     }
 
+    /**
+     * 获取最后一个MappedFile,如果不存在或者已经满了,就创建
+     * @param startOffset
+     * @param needCreate
+     * @return org.apache.rocketmq.store.MappedFile
+     * @author chenqi
+     * @date 2020/12/28 16:43
+     */
     public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
+        //开始创建文件,-1时不创建
         long createOffset = -1;
         MappedFile mappedFileLast = getLastMappedFile();
 
@@ -226,23 +236,31 @@ public class MappedFileQueue {
             createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
         }
 
+        //创建文件
         if (createOffset != -1 && needCreate) {
+            // 计算文件名。从此处我们可 以得知，MappedFile的文件命名规则：
+            // 00000001000000000000 00100000000000000000 09000000000020000000二十位
+            // fileName[n] = fileName[n - 1] + n * mappedFileSize fileName[0] = startOffset - (startOffset % this.mappedFileSize)
             String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
             String nextNextFilePath = this.storePath + File.separator
                 + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
-            MappedFile mappedFile = null;
 
+            MappedFile mappedFile = null;
+            // 两种方式创建文件
             if (this.allocateMappedFileService != null) {
+                //由allocateMappedFileService服务来维护MappedFile
                 mappedFile = this.allocateMappedFileService.putRequestAndReturnMappedFile(nextFilePath,
                     nextNextFilePath, this.mappedFileSize);
             } else {
                 try {
+                    //通过调用init()方法创建MappedFile
                     mappedFile = new MappedFile(nextFilePath, this.mappedFileSize);
                 } catch (IOException e) {
                     log.error("create mappedFile exception", e);
                 }
             }
 
+            //添加到mappedFile
             if (mappedFile != null) {
                 if (this.mappedFiles.isEmpty()) {
                     mappedFile.setFirstCreateInQueue(true);

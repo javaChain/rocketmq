@@ -1,24 +1,21 @@
-源码debug:
-1. 首先github下载rocketmq的4.7.1的代码
-2. 配置nameserver(NamesrvController),broker(BrokerStartup)的ROCKET_HOME环境变量和
+>源码debug:
+>1. 首先github下载rocketmq的4.7.1的代码
+>2. 配置nameserver(NamesrvController),broker(BrokerStartup)的ROCKET_HOME环境变量和
 	program argument -c "E:\Program Files\rocketmq-all-4.7.1-bin-release\conf\broker.conf"
-3.	依次启动namesrv/broker/producer/consumer
+>3.	依次启动namesrv/broker/producer/consumer
 
 
 
+`requestCode 是broker和client之间数据处理的桥梁`
 
-RouteInfoManager 收到请求之后会通过request.getCode的类型进行不同的处理!
-
-broker 双主的时候到底是怎么处理producer发送到的消息的,如果发送到master1,master2是怎么处理的呢?
-
-HashMap<String, List<QueueData>> topicQueueTable;
-TopicQueueTable key topicName,value List<QueueData>
-
-读队列和写队列是如何工作的?
-consumer是如何定位到哪一个读队列,producer怎么选择哪一个写队列?
+#问题?
+- broker 双主的时候到底是怎么处理producer发送到的消息的,如果发送到master1,master2是怎么处理的呢?
+> 猜测 如果正常逻辑,master1和master2的消息是不会同步,不同步的话消息会不一致?
+- 读队列和写队列是如何工作的?
+- consumer是如何定位到哪一个读队列,producer怎么选择哪一个写队列?
 
 
-第二章
+#第二章
 NameServer如何保持一致?
     1. 服务注册(broker新增): broker启动的时候会向NameServer注册自己的信息
     2. 服务剔除(broker关闭或宕机):
@@ -37,7 +34,7 @@ NameServer启动的时候,首先加载配置文件,然后启动了2个线程池 
 
 broker启动 加载配置文件, 初始化很多定时任务, 通过netty包装了请求向namesrv发送连接
 
-第三章
+#第三章
 1. 消息队列如何进行负载?
 2. 消息发送如何实现高可用?
 3. 批量消息发送如何实现一致?
@@ -46,8 +43,8 @@ broker启动 加载配置文件, 初始化很多定时任务, 通过netty包装�
 producer发送消息基本流程:
 验证消息->查找路由->消息发送
 producer启动流程:
+```
 - producer.start();
-
     1. producer启动的时候会检查是否有producerGroup,然后把instanceName改为pid,避免同一个物理机启动2个producer无法启动
     2. 注册服务到MQClientInstance
     3. MQClientInstance启动,启动了如下的后台任务
@@ -65,8 +62,11 @@ producer启动流程:
 -  SendResult sendResult = producer.send(msg); 发送消息要先通过topic找到路由信息,然后找到对应的队列进行消息发送
 查找路由信息 首先遍历broker然后遍历ConsumerQueue,所以如果是集群,查找的结构应该是:
 broker-a-0,broker-a-1,broker-b-0,broker-b-1
+```
 
 具体如下:
+
+```
 this.defaultMQProducerImpl.send(msg) -> DefaultMQProducerImpl#sendDefaultImpl() ->
 TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
 tryToFindTopicPublishInfo() 根据主题查找路由信息 -> 深入进去updateTopicRouteInfoFromNameServer() 从NameServer之中找到
@@ -77,6 +77,7 @@ for (int i = 0; i < qd.getWriteQueueNums(); i++) {
     info.getMessageQueueList().add(mq);
 }
 
+```
  //选择一个MessageQueue
  MessageQueue mqSelected = this.selectOneMessageQueue(topicPublishInfo, lastBrokerName);
  当sendLatencyFaultEnable=true 延迟发送, 路由计算是:sendWhichQueue++%messageQueue.size()数量
@@ -92,13 +93,15 @@ for (int i = 0; i < qd.getWriteQueueNums(); i++) {
 后面会通过netty的channel.writeAndFlush(request) 进行请求发送.
 
 上面看源码已经知道了producer发送消息到了broker,接下来我们看一下broker是如何处理的?
-根据RequestCode.SEND_MESSAGE_V2进行匹配到rocketmq-broker服务的AbstractSendMessageProcessor#parseRequestHeader,
+根据RequestCode.SEND_MESSAGE_V2进行匹配到rocketmq-broker服务的`AbstractSendMessageProcessor#parseRequestHeader`
 SendMessageProcessor#asyncProcessRequest()调用了parseRequestHeader() ->
 SendMessageRequestHeader requestHeader = parseRequestHeader(request);
 ->asyncSendMessage()
+
 1. 首先检查消息是否合理
 2. 消息重试是否达到最大重试次数,进入死信队列%DLQ%+消费组名
 3. 调用putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner); //存储消息
+
 
 RocketMQ存储核心
 三大组件:
@@ -110,16 +113,138 @@ IndexFile: hash结构,key为hashcode,value为CommitLog offset. 消息索引文�
 猜测IndexFile应该是索引文件,传递key的hashcode 直接找到CommitLog的消息文件
 
 //DefaultMessageStore#asyncPutMessage()
-- putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
--
+
+putMessageResult = this.brokerController.getMessageStore().asyncPutMessage(msgInner);
+
 从上面这行进行分析:
-存储消息会调用CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);
-这里实现类为CommitLog的asyncPutMessage(msg);,然后处理消息的字段,处理CommitLog offset的逻辑,
-AppendMessageResult result = new AppendMessageResult(AppendMessageStatus.PUT_OK, wroteOffset, msgLen, msgId,
-                msgInner.getStoreTimestamp(), queueOffset, CommitLog.this.defaultMessageStore.now() - beginTimeMills);
+存储消息会调用`CompletableFuture<PutMessageResult> putResultFuture = this.commitLog.asyncPutMessage(msg);`
+这里实现类为`CommitLog的asyncPutMessage(msg);`,然后处理消息的字段,处理CommitLog offset的逻辑,
+`AppendMessageResult result = new AppendMessageResult(AppendMessageStatus.PUT_OK, wroteOffset, msgLen, msgId,
+              msgInner.getStoreTimestamp(), queueOffset, CommitLog.this.defaultMessageStore.now() - beginTimeMills);`
 会先将消息追加在内存中等待刷盘.
 
 ~~上面以前都是txt格式,后面会改为md格式放图以后好回顾~~
+
+### MappedFileQueue
+MappedFileQueue是MappedFile的文件管理容器,MappedFileQueue是对存储目录的封装.例如:CommitLog的存储目录为
+${ROCKETMQ_HOME}/store/commitlog,该目录下会存在多个内存映射文件MappedFile.
+
+![image-20201228154146677](note_images/image-20201228154146677.png)
+
+#### MappedFile
+
+Java Memory-Mapped File所使用的内存分配在物理内存而不是JVM堆内存，且分配在OS内核。
+
+每一个文件对应一个MappedFile.默认情况下大小位1g
+
+```java
+//通过上面我们知道消息发送是在asyncPutMessage()方法中
+//那么MappedFile是如何创建并且维护的呢?
+public CompletableFuture<PutMessageResult> asyncPutMessage(final MessageExtBrokerInner msg) {
+  // ...省略
+ MappedFile mappedFile = this.mappedFileQueue.getLastMappedFile();
+  //...省略
+  if (null == mappedFile || mappedFile.isFull()) {
+                mappedFile = this.mappedFileQueue.getLastMappedFile(0); // Mark: NewFile may be cause noise
+            }
+}
+
+```
+
+```java
+/**
+     * 获取最后一个MappedFile,如果不存在或者已经满了,就创建
+     * @param startOffset
+     * @param needCreate
+     * @return org.apache.rocketmq.store.MappedFile
+     * @author chenqi
+     * @date 2020/12/28 16:43
+     */
+    public MappedFile getLastMappedFile(final long startOffset, boolean needCreate) {
+        //开始创建文件,-1时不创建
+        long createOffset = -1;
+        MappedFile mappedFileLast = getLastMappedFile();
+
+        if (mappedFileLast == null) {
+            createOffset = startOffset - (startOffset % this.mappedFileSize);
+        }
+
+        if (mappedFileLast != null && mappedFileLast.isFull()) {
+            createOffset = mappedFileLast.getFileFromOffset() + this.mappedFileSize;
+        }
+
+        //创建文件
+        if (createOffset != -1 && needCreate) {
+            // 计算文件名。从此处我们可 以得知，MappedFile的文件命名规则：
+            // 00000001000000000000 00100000000000000000 09000000000020000000二十位
+            // fileName[n] = fileName[n - 1] + n * mappedFileSize fileName[0] = startOffset - (startOffset % this.mappedFileSize)
+            String nextFilePath = this.storePath + File.separator + UtilAll.offset2FileName(createOffset);
+            String nextNextFilePath = this.storePath + File.separator
+                + UtilAll.offset2FileName(createOffset + this.mappedFileSize);
+
+            MappedFile mappedFile = null;
+            // 两种方式创建文件
+            if (this.allocateMappedFileService != null) {
+                //由allocateMappedFileService服务来维护MappedFile
+               //查看资料https://my.oschina.net/u/4226611/blog/4353076
+                mappedFile = this.allocateMappedFileService.putRequestAndReturnMappedFile(nextFilePath,
+                    nextNextFilePath, this.mappedFileSize);
+            } else {
+                try {
+                    //通过init()方法创建
+                    mappedFile = new MappedFile(nextFilePath, this.mappedFileSize);
+                } catch (IOException e) {
+                    log.error("create mappedFile exception", e);
+                }
+            }
+            
+            //添加到mappedFile
+            if (mappedFile != null) {
+                if (this.mappedFiles.isEmpty()) {
+                    mappedFile.setFirstCreateInQueue(true);
+                }
+                this.mappedFiles.add(mappedFile);
+            }
+
+            return mappedFile;
+        }
+
+        return mappedFileLast;
+    }
+```
+
+```java
+private void init(final String fileName, final int fileSize) throws IOException {
+        this.fileName = fileName;
+        this.fileSize = fileSize;
+        this.file = new File(fileName);
+        this.fileFromOffset = Long.parseLong(this.file.getName());
+        boolean ok = false;
+
+        ensureDirOK(this.file.getParent());
+
+        try {
+            this.fileChannel = new RandomAccessFile(this.file, "rw").getChannel();
+            this.mappedByteBuffer = this.fileChannel.map(MapMode.READ_WRITE, 0, fileSize);
+            TOTAL_MAPPED_VIRTUAL_MEMORY.addAndGet(fileSize);
+            TOTAL_MAPPED_FILES.incrementAndGet();
+            ok = true;
+        } catch (FileNotFoundException e) {
+            log.error("Failed to create file " + this.fileName, e);
+            throw e;
+        } catch (IOException e) {
+            log.error("Failed to map file " + this.fileName, e);
+            throw e;
+        } finally {
+            if (!ok && this.fileChannel != null) {
+                this.fileChannel.close();
+            }
+        }
+    }
+```
+
+
+
 
 
  //执行刷盘操作
