@@ -1155,7 +1155,12 @@ public class CommitLog {
 
         return -1;
     }
-
+    /**
+     * 获得CommitLog目录最小的偏移量
+     * @return long
+     * @author chenqi
+     * @date 2020/12/29 15:14
+     */
     public long getMinOffset() {
         MappedFile mappedFile = this.mappedFileQueue.getFirstMappedFile();
         if (mappedFile != null) {
@@ -1168,9 +1173,19 @@ public class CommitLog {
 
         return -1;
     }
-
+    
+    /**
+     * 通过offset和Size获得message
+     * @param offset
+     * @param size
+     * @return org.apache.rocketmq.store.SelectMappedBufferResult
+     * @author chenqi
+     * @date 2020/12/29 15:31
+     */
     public SelectMappedBufferResult getMessage(final long offset, final int size) {
+        //获得CommitLog文件大小
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
+        //通过offset获得MappedFile
         MappedFile mappedFile = this.mappedFileQueue.findMappedFileByOffset(offset, offset == 0);
         if (mappedFile != null) {
             int pos = (int) (offset % mappedFileSize);
@@ -1179,6 +1194,13 @@ public class CommitLog {
         return null;
     }
 
+    /**
+     * 获得下一个文件的offset
+     * @param offset
+     * @return long
+     * @author chenqi
+     * @date 2020/12/29 15:30
+     */
     public long rollNextFile(final long offset) {
         int mappedFileSize = this.defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog();
         return offset + mappedFileSize - offset % mappedFileSize;
