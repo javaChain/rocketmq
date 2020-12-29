@@ -323,13 +323,16 @@ public class MappedFile extends ReferenceResource {
 
     /**
      * @return The current flushed position
+     *
      */
     public int flush(final int flushLeastPages) {
+        //校验是否能够flush
         if (this.isAbleToFlush(flushLeastPages)) {
             if (this.hold()) {
                 int value = getReadPosition();
 
                 try {
+                    //调用mappedByteBuffer/fileChannel的force方法将内存的数据持久化到磁盘上
                     //We only append data to fileChannel or mappedByteBuffer, never both.
                     if (writeBuffer != null || this.fileChannel.position() != 0) {
                         this.fileChannel.force(false);

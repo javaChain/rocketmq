@@ -144,7 +144,7 @@ ${ROCKETMQ_HOME}/store/commitlog,该目录下会存在多个内存映射文件Ma
 
 ![image-20201228201320180](note_images/image-20201228201320180.png)
 
-#### MappedFile
+### MappedFile
 
 Java Memory-Mapped File所使用的内存分配在物理内存而不是JVM堆内存，且分配在OS内核。
 
@@ -258,6 +258,14 @@ private void init(final String fileName, final int fileSize) throws IOException 
 
 现在已经知道MappedFile的文件的创建和内存映射,那么如何刷盘呢?
 
+刷盘方式有三种：
+
+| 线程服务              | 场景                           | 写消息性能 |
+| --------------------- | ------------------------------ | ---------- |
+| CommitRealTimeService | 异步刷盘 && 开启内存字节缓冲区 | 第一       |
+| FlushRealTimeService  | 异步刷盘                       | 第二       |
+| GroupCommitService    | 同步刷盘                       | 第三       |
+
 ` handleDiskFlush(result, putMessageResult, msg);`找到异步提交和刷盘`commitLogService.wakeup();`继续跟踪
 
 ```java
@@ -269,11 +277,125 @@ public void handleDiskFlush(AppendMessageResult result, PutMessageResult putMess
             if (!this.defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
                 flushCommitLogService.wakeup();//进入
             } else {
+              //唤醒的服务是CommitRealTimeServer
                 commitLogService.wakeup();
             }
         }
 }
 ```
+
+
+### **FlushRealTimeService**
+
+broker启动后，会启动许多服务线程，包括刷盘服务线程.,我们先搞清楚`FlushRealTimeService`的来龙去脉
+
+```java
+//初始化CommitLog的流程
+//BrokerController->initialize()->new DefaultMessageStore(this.messageStoreConfig, this.brokerStatsManager, this.messageArrivingListener, this.brokerConfig)
+//this.commitLog = new CommitLog(this);
+public CommitLog(final DefaultMessageStore defaultMessageStore) {
+        this.mappedFileQueue = new MappedFileQueue(defaultMessageStore.getMessageStoreConfig().getStorePathCommitLog(),
+            defaultMessageStore.getMessageStoreConfig().getMappedFileSizeCommitLog(), defaultMessageStore.getAllocateMappedFileService());
+        this.defaultMessageStore = defaultMessageStore;
+
+        //同步调用
+        if (FlushDiskType.SYNC_FLUSH == defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
+            this.flushCommitLogService = new GroupCommitService();
+        } else {
+            //异步调用
+            this.flushCommitLogService = new FlushRealTimeService();
+        }
+        //构造commitLogService服务
+        this.commitLogService = new CommitRealTimeService();
+
+        this.appendMessageCallback = new DefaultAppendMessageCallback(defaultMessageStore.getMessageStoreConfig().getMaxMessageSize());
+        batchEncoderThreadLocal = new ThreadLocal<MessageExtBatchEncoder>() {
+            @Override
+            protected MessageExtBatchEncoder initialValue() {
+                return new MessageExtBatchEncoder(defaultMessageStore.getMessageStoreConfig().getMaxMessageSize());
+            }
+        };
+        this.putMessageLock = defaultMessageStore.getMessageStoreConfig().isUseReentrantLockWhenPutMessage() ? new PutMessageReentrantLock() : new PutMessageSpinLock();
+
+    }
+```
+
+```java
+//启动服务
+public void start() {
+  			//调用FlushRealTimeService()服务的run()方法
+        this.flushCommitLogService.start();
+
+        if (defaultMessageStore.getMessageStoreConfig().isTransientStorePoolEnable()) {
+          //调用CommitRealTimeService提交消息到内存并映射物理文件
+            this.commitLogService.start();
+        }
+    }
+```
+
+CommitLog的父类是`DefaultMessageStore`,然后是在`BrokerController#start()`方法中调用`this.messageStore.start();`启动服务.
+
+`CommitRealTimeService#start()->run()`
+
+```java
+class CommitRealTimeService extends FlushCommitLogService {
+
+        private long lastCommitTimestamp = 0;
+
+        @Override
+        public String getServiceName() {
+            return CommitRealTimeService.class.getSimpleName();
+        }
+
+        @Override
+        public void run() {
+            CommitLog.log.info(this.getServiceName() + " service started");
+            while (!this.isStopped()) {
+                int interval = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitIntervalCommitLog();
+
+                int commitDataLeastPages = CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogLeastPages();
+
+                int commitDataThoroughInterval =
+                    CommitLog.this.defaultMessageStore.getMessageStoreConfig().getCommitCommitLogThoroughInterval();
+
+                long begin = System.currentTimeMillis();
+                if (begin >= (this.lastCommitTimestamp + commitDataThoroughInterval)) {
+                    this.lastCommitTimestamp = begin;
+                    commitDataLeastPages = 0;
+                }
+
+                try {
+                    boolean result = CommitLog.this.mappedFileQueue.commit(commitDataLeastPages);
+                    long end = System.currentTimeMillis();
+                    //判断是否应该刷盘,根据上面commit的提交来判断的,如果为false就需要刷盘
+                    if (!result) {
+                        this.lastCommitTimestamp = end; // result = false means some data committed.
+                        //now wake up flush thread.
+                        //唤醒刷盘服务
+                        flushCommitLogService.wakeup();
+                    }
+
+                    if (end - begin > 500) {
+                        log.info("Commit data to file costs {} ms", end - begin);
+                    }
+                    this.waitForRunning(interval);
+                } catch (Throwable e) {
+                    CommitLog.log.error(this.getServiceName() + " service has exception. ", e);
+                }
+            }
+
+            //重试提交
+            boolean result = false;
+            for (int i = 0; i < RETRY_TIMES_OVER && !result; i++) {
+                result = CommitLog.this.mappedFileQueue.commit(0);
+                CommitLog.log.info(this.getServiceName() + " service shutdown, retry " + (i + 1) + " times " + (result ? "OK" : "Not OK"));
+            }
+            CommitLog.log.info(this.getServiceName() + " service end");
+        }
+    }
+```
+
+`CommitLog.this.mappedFileQueue.commit(commitDataLeastPages);`分析`commit(commitDataLeastPages)`
 
 ```java
 public boolean commit(final int commitLeastPages) {
@@ -290,9 +412,7 @@ public boolean commit(final int commitLeastPages) {
 
         return result;
     }
-```
 
-```java
 /**
      * 提交数据到磁盘
      * @param commitLeastPages 最小提交页数
@@ -340,7 +460,7 @@ public boolean commit(final int commitLeastPages) {
                 byteBuffer.limit(writePos);
                 //把lastCommittedPosition写入发哦FileChannelPosition中
                 this.fileChannel.position(lastCommittedPosition);
-                //写入数据到
+                //将数据提交到文件通道FileChannel,还是在内存之中
                 this.fileChannel.write(byteBuffer);
                 this.committedPosition.set(writePos);
             } catch (Throwable e) {
@@ -350,9 +470,61 @@ public boolean commit(final int commitLeastPages) {
     }
 ```
 
-**GroupCommitService**
+上面只看了`commit()`方法,将数据写入内存,那么是什么时候刷到磁盘的呢?
 
-broker启动后，会启动许多服务线程，包括刷盘服务线程，如果刷盘服务线程类型是SYNC_FLUSH （同步刷盘类型：对写入的数据同步刷盘，只在broker==master时使用），则开启GroupCommitService服务，该服务线程启动后每隔10毫秒或该线程调用了wakeup()方法后停止阻塞，执行doCommit()方法。doCommit里面执行具体的刷盘逻辑业务。GroupCommitService服务线程体如下：
+上文说到还有一个线程也会启动就是`FlushRealTimeService#run()`
+
+```java
+class FlushRealTimeService extends FlushCommitLogService {
+
+
+        public void run() {
+				//忽略上下文            
+                    long begin = System.currentTimeMillis();
+                    CommitLog.this.mappedFileQueue.flush(flushPhysicQueueLeastPages);
+                    long storeTimestamp = CommitLog.this.mappedFileQueue.getStoreTimestamp();
+        }
+}
+```
+
+`CommitLog.this.mappedFileQueue.flush(flushPhysicQueueLeastPages);`->`MappedFileQueue#flush()`->
+
+`MappedFile#flush()`
+
+```java
+/**
+     * @return The current flushed position
+     *
+     */
+    public int flush(final int flushLeastPages) {
+        //校验是否能够flush
+        if (this.isAbleToFlush(flushLeastPages)) {
+            if (this.hold()) {
+                int value = getReadPosition();
+
+                try {
+                    //调用mappedByteBuffer/fileChannel的force方法将内存的数据持久化到磁盘上
+                    if (writeBuffer != null || this.fileChannel.position() != 0) {
+                        this.fileChannel.force(false);
+                    } else {
+                        this.mappedByteBuffer.force();
+                    }
+                } catch (Throwable e) {
+                    log.error("Error occurred when force data to disk.", e);
+                }
+
+                this.flushedPosition.set(value);
+                this.release();
+            } else {
+                log.warn("in flush, hold failed, flush offset = " + this.flushedPosition.get());
+                this.flushedPosition.set(getReadPosition());
+            }
+        }
+        return this.getFlushedPosition();
+    }
+```
+
+
 
 
 

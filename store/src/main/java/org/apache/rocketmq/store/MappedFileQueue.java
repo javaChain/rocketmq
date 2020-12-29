@@ -478,12 +478,19 @@ public class MappedFileQueue {
 
         return deleteCount;
     }
-
+    /**
+     * 刷写到磁盘
+     * @param flushLeastPages
+     * @return boolean
+     * @author chenqi
+     * @date 2020/12/29 14:20
+     */
     public boolean flush(final int flushLeastPages) {
         boolean result = true;
         MappedFile mappedFile = this.findMappedFileByOffset(this.flushedWhere, this.flushedWhere == 0);
         if (mappedFile != null) {
             long tmpTimeStamp = mappedFile.getStoreTimestamp();
+            //调用MappedFile的flush
             int offset = mappedFile.flush(flushLeastPages);
             long where = mappedFile.getFileFromOffset() + offset;
             result = where == this.flushedWhere;
