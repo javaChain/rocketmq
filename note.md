@@ -524,9 +524,33 @@ class FlushRealTimeService extends FlushCommitLogService {
     }
 ```
 
+# 第四章
 
+- CommitLog:存储所有的消息,文件的集合,每个文件默认1G大小.当第一个文件写满了,第二个文件会以初始偏移量命名.比如其实偏移量1080802673,第二个文件名为00000000001080802673,以此类推.CommitLog的内容在消费之后是不会被删除的,支持消息回溯,可以随时搜索.
 
+- ConsumeQueue:CommitLog的索引文件,消息消费队列是RocketMQ专门为消息订阅的索引文件,提高消息检索速度.一个Topic可以有多个ConsumerQueue,每一个文件代表一个逻辑队列.
 
+  从实际的物理存储来说,ConsumeQueue对应每个Topic和QueueId下面的文件,单个文件30W条数据组成,大小600万字节(约5.72M).当一个ConsumeQueue类型的文件写满了,则写下一个文件
+
+  ![image-20201230153000026](note_images/image-20201230153000026.png)
+
+- Index:引入Hash索引机制为消息建立索引
+
+  单个IndexFile可以保存2000W个索引,文件大小约为400M
+
+  索引的目的在于根据关键字快速定位消息.
+
+  ![image-20201230145523437](note_images/image-20201230145523437.png)
+
+- CheckPoint CommitLog,ConsumeQueue,IndexFile 文件的刷盘时间点,存储格式为
+
+  ![image-20201230160419131](note_images/image-20201230160419131.png)
+
+physicMsgTimestamp: CommitLog文件刷盘时间点
+
+logicsMsgTimestamp: ConsumeQueue文件刷盘时间点
+
+indexMsgTimestamp: IndexFile文件刷盘时间点
 
 
 

@@ -89,10 +89,23 @@ public class IndexFile {
         return this.mappedFile.destroy(intervalForcibly);
     }
 
+    /**
+     *
+     * @param key 消息索引key
+     * @param phyOffset 消息物理偏移量
+     * @param storeTimestamp 消息存储时间
+     * @return boolean
+     * @author chenqi
+     * @date 2020/12/30 15:13
+     */
     public boolean putKey(final String key, final long phyOffset, final long storeTimestamp) {
+        //判断索引文件的索引数小于最大的索引数,如果>=最大的索引数,IndexService就会尝试创建一个新的索引文件
         if (this.indexHeader.getIndexCount() < this.indexNum) {
+            //计算key的hash值
             int keyHash = indexKeyHashMethod(key);
+            //根据key的hash值散列到某个hash slot中
             int slotPos = keyHash % this.hashSlotNum;
+            //计算得到hash slot的实际文件位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
@@ -101,11 +114,13 @@ public class IndexFile {
 
                 // fileLock = this.fileChannel.lock(absSlotPos, hashSlotSize,
                 // false);
+                //获取hash槽中存储的数据 当hash槽中的数据小于0或者大于当前索引文件中的索引条目
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 if (slotValue <= invalidIndex || slotValue > this.indexHeader.getIndexCount()) {
                     slotValue = invalidIndex;
                 }
 
+                //计算第一条消息的时间戳与第一条消息的时间戳的差值
                 long timeDiff = storeTimestamp - this.indexHeader.getBeginTimestamp();
 
                 timeDiff = timeDiff / 1000;
@@ -118,15 +133,19 @@ public class IndexFile {
                     timeDiff = 0;
                 }
 
+                //计算当前索引文件存储的位置
                 int absIndexPos =
                     IndexHeader.INDEX_HEADER_SIZE + this.hashSlotNum * hashSlotSize
                         + this.indexHeader.getIndexCount() * indexSize;
-
+                //存入该消息的索引文件
                 this.mappedByteBuffer.putInt(absIndexPos, keyHash);
                 this.mappedByteBuffer.putLong(absIndexPos + 4, phyOffset);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8, (int) timeDiff);
                 this.mappedByteBuffer.putInt(absIndexPos + 4 + 8 + 4, slotValue);
 
+                //关键之处:在该key hash slot处存入当前消息索引的位置,下次通过该key进行搜索时
+                //会找到 key hash slot -> slot value -> curIndex ->
+                // if(curIndex.preIndex>0) pre index(一直循环直道curIndex == 0 停止
                 this.mappedByteBuffer.putInt(absSlotPos, this.indexHeader.getIndexCount());
 
                 if (this.indexHeader.getIndexCount() <= 1) {
@@ -188,11 +207,26 @@ public class IndexFile {
         return result;
     }
 
+    /**
+     * 根据key 查找消息
+     * @param phyOffsets
+     * @param key
+     * @param maxNum
+     * @param begin
+     * @param end
+     * @param lock
+     * @return void
+     * @author chenqi
+     * @date 2020/12/30 15:48
+     */
     public void selectPhyOffset(final List<Long> phyOffsets, final String key, final int maxNum,
         final long begin, final long end, boolean lock) {
         if (this.mappedFile.hold()) {
+            //计算key的hash值
             int keyHash = indexKeyHashMethod(key);
+            //取余获得槽
             int slotPos = keyHash % this.hashSlotNum;
+            //获得实际槽的位置
             int absSlotPos = IndexHeader.INDEX_HEADER_SIZE + slotPos * hashSlotSize;
 
             FileLock fileLock = null;
@@ -202,6 +236,7 @@ public class IndexFile {
                     // hashSlotSize, true);
                 }
 
+                //获得槽的值
                 int slotValue = this.mappedByteBuffer.getInt(absSlotPos);
                 // if (fileLock != null) {
                 // fileLock.release();
@@ -235,6 +270,7 @@ public class IndexFile {
                         long timeRead = this.indexHeader.getBeginTimestamp() + timeDiff;
                         boolean timeMatched = (timeRead >= begin) && (timeRead <= end);
 
+                        //如果时间匹配并且hash值一样就把phyOffsetRead加入phyOffsets
                         if (keyHash == keyHashRead && timeMatched) {
                             phyOffsets.add(phyOffsetRead);
                         }

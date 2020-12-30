@@ -2016,6 +2016,7 @@ public class DefaultMessageStore implements MessageStore {
         }
 
         private void doReput() {
+            //如果转发消息的offset小于commitLog的最小Offset 说明CommitLog有新的消息需要转发
             if (this.reputFromOffset < DefaultMessageStore.this.commitLog.getMinOffset()) {
                 log.warn("The reputFromOffset={} is smaller than minPyOffset={}, this usually indicate that the dispatch behind too much and the commitlog has expired.",
                     this.reputFromOffset, DefaultMessageStore.this.commitLog.getMinOffset());
