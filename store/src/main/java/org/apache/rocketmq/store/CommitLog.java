@@ -964,7 +964,9 @@ public class CommitLog {
 
     public void handleDiskFlush(AppendMessageResult result, PutMessageResult putMessageResult, MessageExt messageExt) {
         // Synchronization flush
+        //如果是同步刷盘
         if (FlushDiskType.SYNC_FLUSH == this.defaultMessageStore.getMessageStoreConfig().getFlushDiskType()) {
+            //flushCommitLogService构造成GroupCommitService
             final GroupCommitService service = (GroupCommitService) this.flushCommitLogService;
             if (messageExt.isWaitStoreMsgOK()) {
                 GroupCommitRequest request = new GroupCommitRequest(result.getWroteOffset() + result.getWroteBytes());
@@ -1466,6 +1468,7 @@ public class CommitLog {
                             flushOK = CommitLog.this.mappedFileQueue.getFlushedWhere() >= req.getNextOffset();
 
                             if (!flushOK) {
+                                //刷写磁盘
                                 CommitLog.this.mappedFileQueue.flush(0);
                             }
                         }
