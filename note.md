@@ -560,14 +560,181 @@ indexMsgTimestamp: IndexFile文件刷盘时间点
 
 删除策略:
 
-**默认超过72小时的文件**
-
-- 通过定时任务,每天凌晨4点删除过期文件
+- 通过定时任务,每天凌晨4点执行*默认超过72小时的文件为过期文件*进行删除
 - 磁盘使用空间超过75%,开始删除过期文件
 - 如果磁盘使用率超过85%,开始批量清理文件,不管是否过期,直到空间充足
 - 如果磁盘使用率超过90%,拒绝消息写入
 
 以下我们查看源码追踪:
+
+`DefaultMessageStore#addScheduleTask()`
+
+```java
+private void addScheduleTask() {
+
+        this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+              //每10s定期清理文件
+                DefaultMessageStore.this.cleanFilesPeriodically();
+            }
+        }, 1000 * 60, this.messageStoreConfig.getCleanResourceInterval(), TimeUnit.MILLISECONDS);
+
+        this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+              //CommitLog自我检查
+                DefaultMessageStore.this.checkSelf();
+            }
+        }, 1, 10, TimeUnit.MINUTES);
+  
+
+        this.diskCheckScheduledExecutorService.scheduleAtFixedRate(new Runnable() {
+            public void run() {
+              //空间是否满了
+                DefaultMessageStore.this.cleanCommitLogService.isSpaceFull();
+            }
+        }, 1000L, 10000L, TimeUnit.MILLISECONDS);
+    }
+```
+
+```java
+	/**
+     * commitLog清除和ConsumeQueue清除服务
+     * @return void
+     * @author chenqi
+     * @date 2021/1/4 10:09
+     */
+    private void cleanFilesPeriodically() {
+        this.cleanCommitLogService.run();
+        this.cleanConsumeQueueService.run();
+    }
+
+public void run() {
+            try {
+              //删除
+                this.deleteExpiredFiles();
+
+                this.redeleteHangedFile();
+            } catch (Throwable e) {
+                DefaultMessageStore.log.warn(this.getServiceName() + " service has exception. ", e);
+            }
+        }
+```
+
+```java
+private void deleteExpiredFiles() {
+            int deleteCount = 0;
+            long fileReservedTime = DefaultMessageStore.this.getMessageStoreConfig().getFileReservedTime();
+            int deletePhysicFilesInterval = DefaultMessageStore.this.getMessageStoreConfig().getDeleteCommitLogFilesInterval();
+            int destroyMapedFileIntervalForcibly = DefaultMessageStore.this.getMessageStoreConfig().getDestroyMapedFileIntervalForcibly();
+
+            //通过deleteWhen设置一天的固定执行一次删除,默认为凌晨4点
+            boolean timeup = this.isTimeToDelete();
+            //磁盘空间是否充足,如果磁盘空间不充足 返回true 立即执行删除
+            boolean spacefull = this.isSpaceToDelete();
+            //预留 手工触发删除策略
+            boolean manualDelete = this.manualDeleteFileSeveralTimes > 0;
+
+            if (timeup || spacefull || manualDelete) {
+
+                if (manualDelete)
+                    this.manualDeleteFileSeveralTimes--;
+
+                boolean cleanAtOnce = DefaultMessageStore.this.getMessageStoreConfig().isCleanFileForciblyEnable() && this.cleanImmediately;
+
+                log.info("begin to delete before {} hours file. timeup: {} spacefull: {} manualDeleteFileSeveralTimes: {} cleanAtOnce: {}",
+                    fileReservedTime,
+                    timeup,
+                    spacefull,
+                    manualDeleteFileSeveralTimes,
+                    cleanAtOnce);
+
+                //过期时间
+                fileReservedTime *= 60 * 60 * 1000;
+ //入参分析: 删除文件的过期时间,两次删除文件的间隔时间,强制销毁映射文件,是否立刻执行
+                deleteCount = DefaultMessageStore.this.commitLog.deleteExpiredFile(fileReservedTime, deletePhysicFilesInterval,
+                    destroyMapedFileIntervalForcibly, cleanAtOnce);
+                if (deleteCount > 0) {
+                } else if (spacefull) {
+                    log.warn("disk space will be full soon, but delete file failed.");
+                }
+            }
+        }
+```
+
+`磁盘使用率`
+
+```java
+private boolean isSpaceToDelete() {
+            //获得磁盘最大使用率
+            double ratio = DefaultMessageStore.this.getMessageStoreConfig().getDiskMaxUsedSpaceRatio() / 100.0;
+
+            cleanImmediately = false;
+
+            {
+                String storePathPhysic = DefaultMessageStore.this.getMessageStoreConfig().getStorePathCommitLog();
+                //CommitLog目录所在的磁盘分区使用率
+                double physicRatio = UtilAll.getDiskPartitionSpaceUsedPercent(storePathPhysic);
+                if (physicRatio > diskSpaceWarningLevelRatio) {
+                    //如果当前磁盘使用率>0.9 磁盘拒绝写入消息
+                    boolean diskok = DefaultMessageStore.this.runningFlags.getAndMakeDiskFull();
+                    if (diskok) {
+                        DefaultMessageStore.log.error("physic disk maybe full soon " + physicRatio + ", so mark disk full");
+                    }
+
+                    cleanImmediately = true;
+                } else if (physicRatio > diskSpaceCleanForciblyRatio) {
+                    //如果当前磁盘使用率>0.85 立即执行删除
+                    cleanImmediately = true;
+                } else {
+                    //磁盘使用率<0.85 为正常 返回true
+                    boolean diskok = DefaultMessageStore.this.runningFlags.getAndMakeDiskOK();
+                    if (!diskok) {
+                        DefaultMessageStore.log.info("physic disk space OK " + physicRatio + ", so mark disk ok");
+                    }
+                }
+
+                if (physicRatio < 0 || physicRatio > ratio) {
+                    DefaultMessageStore.log.info("physic disk maybe full soon, so reclaim space, " + physicRatio);
+                    return true;
+                }
+            }
+
+            {
+                //获得ConsumeQueue逻辑路径,与上面逻辑一致
+                String storePathLogics = StorePathConfigHelper
+                    .getStorePathConsumeQueue(DefaultMessageStore.this.getMessageStoreConfig().getStorePathRootDir());
+                double logicsRatio = UtilAll.getDiskPartitionSpaceUsedPercent(storePathLogics);
+                if (logicsRatio > diskSpaceWarningLevelRatio) {
+                    boolean diskok = DefaultMessageStore.this.runningFlags.getAndMakeDiskFull();
+                    if (diskok) {
+                        DefaultMessageStore.log.error("logics disk maybe full soon " + logicsRatio + ", so mark disk full");
+                    }
+
+                    cleanImmediately = true;
+                } else if (logicsRatio > diskSpaceCleanForciblyRatio) {
+                    cleanImmediately = true;
+                } else {
+                    boolean diskok = DefaultMessageStore.this.runningFlags.getAndMakeDiskOK();
+                    if (!diskok) {
+                        DefaultMessageStore.log.info("logics disk space OK " + logicsRatio + ", so mark disk ok");
+                    }
+                }
+
+                if (logicsRatio < 0 || logicsRatio > ratio) {
+                    DefaultMessageStore.log.info("logics disk maybe full soon, so reclaim space, " + logicsRatio);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+```
+
+# 第五章
+
+
 
 
 
