@@ -576,17 +576,18 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 log.info("the consumer [{}] start beginning. messageModel={}, isUnitMode={}", this.defaultMQPushConsumer.getConsumerGroup(),
                     this.defaultMQPushConsumer.getMessageModel(), this.defaultMQPushConsumer.isUnitMode());
                 this.serviceState = ServiceState.START_FAILED;
-
+                //配置检查
                 this.checkConfig();
-
+                //构造SubscriptionData
                 this.copySubscription();
 
                 if (this.defaultMQPushConsumer.getMessageModel() == MessageModel.CLUSTERING) {
                     this.defaultMQPushConsumer.changeInstanceNameToPID();
                 }
 
+                //初始化MQClientInstance
                 this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQPushConsumer, this.rpcHook);
-
+                //rebanlanceImpl-消息重新负载实现类
                 this.rebalanceImpl.setConsumerGroup(this.defaultMQPushConsumer.getConsumerGroup());
                 this.rebalanceImpl.setMessageModel(this.defaultMQPushConsumer.getMessageModel());
                 this.rebalanceImpl.setAllocateMessageQueueStrategy(this.defaultMQPushConsumer.getAllocateMessageQueueStrategy());
@@ -826,15 +827,25 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
         }
     }
 
+    /**
+     * 构建主题订阅信息SubscriptionData并加入到RebalanceImpl的订阅信息之中
+     * @return void
+     * @author chenqi
+     * @date 2021/1/4 16:06
+    */
     private void copySubscription() throws MQClientException {
         try {
+            //启动初始化Subscription对象
             Map<String, String> sub = this.defaultMQPushConsumer.getSubscription();
+            //sub-> size = 0
             if (sub != null) {
                 for (final Map.Entry<String, String> entry : sub.entrySet()) {
                     final String topic = entry.getKey();
                     final String subString = entry.getValue();
+                    //在SubscriptionData设置tag
                     SubscriptionData subscriptionData = FilterAPI.buildSubscriptionData(this.defaultMQPushConsumer.getConsumerGroup(),
                         topic, subString);
+                    //
                     this.rebalanceImpl.getSubscriptionInner().put(topic, subscriptionData);
                 }
             }
@@ -843,10 +854,13 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 this.messageListenerInner = this.defaultMQPushConsumer.getMessageListener();
             }
 
+            //选择消费者的模式,广播或集群,默认为集群
             switch (this.defaultMQPushConsumer.getMessageModel()) {
                 case BROADCASTING:
                     break;
                 case CLUSTERING:
+                    //订阅重试主题消息,消息重试主题名为%RETRY%+消费者组
+                    //消费者在启动的时候自动订阅该主题,参与消息队列负载
                     final String retryTopic = MixAll.getRetryTopic(this.defaultMQPushConsumer.getConsumerGroup());
                     SubscriptionData subscriptionData = FilterAPI.buildSubscriptionData(this.defaultMQPushConsumer.getConsumerGroup(),
                         retryTopic, SubscriptionData.SUB_ALL);
