@@ -644,6 +644,8 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                 }
 
                 //mq客户端服务,producer和consumer都只会启动一个MQClientInstance实例
+                //this.pullMessageService.start();
+                //this.rebalanceService.start();
                 mQClientFactory.start();
                 log.info("the consumer [{}] start OK.", this.defaultMQPushConsumer.getConsumerGroup());
                 this.serviceState = ServiceState.RUNNING;
