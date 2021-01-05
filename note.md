@@ -748,21 +748,318 @@ private boolean isSpaceToDelete() {
 
   
 
-  
 
-  
+quickstart.Consumer启动源码跟踪:
+
+`consumer.start();`->`this.defaultMQPushConsumerImpl.start();`
+
+```java
+public synchronized void start() throws MQClientException {
+        switch (this.serviceState) {
+            case CREATE_JUST:
+                log.info("the consumer [{}] start beginning. messageModel={}, isUnitMode={}", this.defaultMQPushConsumer.getConsumerGroup(),
+                    this.defaultMQPushConsumer.getMessageModel(), this.defaultMQPushConsumer.isUnitMode());
+                this.serviceState = ServiceState.START_FAILED;
+                //配置检查
+                this.checkConfig();
+                //构造SubscriptionData
+                this.copySubscription();
+
+                if (this.defaultMQPushConsumer.getMessageModel() == MessageModel.CLUSTERING) {
+                    this.defaultMQPushConsumer.changeInstanceNameToPID();
+                }
+
+                //初始化MQClientInstance
+                this.mQClientFactory = MQClientManager.getInstance().getOrCreateMQClientInstance(this.defaultMQPushConsumer, this.rpcHook);
+                //rebanlanceImpl-消息重新负载实现类
+                //设置消费者组
+                this.rebalanceImpl.setConsumerGroup(this.defaultMQPushConsumer.getConsumerGroup());
+                //设置消费者消息模式
+                this.rebalanceImpl.setMessageModel(this.defaultMQPushConsumer.getMessageModel());
+                //设置消息分配策略
+                this.rebalanceImpl.setAllocateMessageQueueStrategy(this.defaultMQPushConsumer.getAllocateMessageQueueStrategy());
+                this.rebalanceImpl.setmQClientFactory(this.mQClientFactory);
+
+                this.pullAPIWrapper = new PullAPIWrapper(
+                    mQClientFactory,
+                    this.defaultMQPushConsumer.getConsumerGroup(), isUnitMode());
+                this.pullAPIWrapper.registerFilterMessageHook(filterMessageHookList);
+
+                if (this.defaultMQPushConsumer.getOffsetStore() != null) {
+                    this.offsetStore = this.defaultMQPushConsumer.getOffsetStore();
+                } else {
+                    //初始化消息进度
+                    switch (this.defaultMQPushConsumer.getMessageModel()) {
+                        case BROADCASTING:
+                            //广播消费消息,消息存储在消费端本地
+                            this.offsetStore = new LocalFileOffsetStore(this.mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup());
+                            break;
+                        case CLUSTERING:
+                            //集群模式,消息消费保存在broker上
+                            this.offsetStore = new RemoteBrokerOffsetStore(this.mQClientFactory, this.defaultMQPushConsumer.getConsumerGroup());
+                            break;
+                        default:
+                            break;
+                    }
+                    this.defaultMQPushConsumer.setOffsetStore(this.offsetStore);
+                }
+                this.offsetStore.load();
+
+                //判断是否为顺序消息消费,创建消息消费端线程服务
+                if (this.getMessageListenerInner() instanceof MessageListenerOrderly) {
+                    this.consumeOrderly = true;
+                    this.consumeMessageService =
+                        new ConsumeMessageOrderlyService(this, (MessageListenerOrderly) this.getMessageListenerInner());
+                } else if (this.getMessageListenerInner() instanceof MessageListenerConcurrently) {
+                    this.consumeOrderly = false;
+                    this.consumeMessageService =
+                        new ConsumeMessageConcurrentlyService(this, (MessageListenerConcurrently) this.getMessageListenerInner());
+                }
+                //启动consume服务
+                this.consumeMessageService.start();
+
+                boolean registerOK = mQClientFactory.registerConsumer(this.defaultMQPushConsumer.getConsumerGroup(), this);
+                if (!registerOK) {
+                    this.serviceState = ServiceState.CREATE_JUST;
+                    this.consumeMessageService.shutdown(defaultMQPushConsumer.getAwaitTerminationMillisWhenShutdown());
+                    throw new MQClientException("The consumer group[" + this.defaultMQPushConsumer.getConsumerGroup()
+                        + "] has been created before, specify another name please." + FAQUrl.suggestTodo(FAQUrl.GROUP_NAME_DUPLICATE_URL),
+                        null);
+                }
+
+                //mq客户端服务,producer和consumer都只会启动一个MQClientInstance实例
+                //this.pullMessageService.start();
+                //this.rebalanceService.start();
+                mQClientFactory.start();
+                log.info("the consumer [{}] start OK.", this.defaultMQPushConsumer.getConsumerGroup());
+                this.serviceState = ServiceState.RUNNING;
+                break;
+            case RUNNING:
+            case START_FAILED:
+            case SHUTDOWN_ALREADY:
+                throw new MQClientException("The PushConsumer service state not OK, maybe started once, "
+                    + this.serviceState
+                    + FAQUrl.suggestTodo(FAQUrl.CLIENT_SERVICE_NOT_OK),
+                    null);
+            default:
+                break;
+        }
+
+        this.updateTopicSubscribeInfoWhenSubscriptionChanged();
+        this.mQClientFactory.checkClientInBroker();
+        this.mQClientFactory.sendHeartbeatToAllBrokerWithLock();
+        this.mQClientFactory.rebalanceImmediately();
+    }
+```
+
+`mQClientFactory.start();`启动创建了MQClientInstance,`this.pullMessageService.start();`pullMessageService服务运行,调用`run()`
+
+```java
+@Override
+    public void run() {
+        log.info(this.getServiceName() + " service started");
+
+        while (!this.isStopped()) {
+            try {
+                //从pullRequestQueue队列中取出PullRequest
+                PullRequest pullRequest = this.pullRequestQueue.take();
+                this.pullMessage(pullRequest);
+            } catch (InterruptedException ignored) {
+            } catch (Exception e) {
+                log.error("Pull Message Service Run Method exception", e);
+            }
+        }
+
+        log.info(this.getServiceName() + " service end");
+    }
+```
+
+根据上面代码查看发现PullRequest是从PullRequestQueue队列中获取的,那么PullRequest是什么时候添加的呢?
+
+```java
+/**
+     * 延迟执行拉取请求
+     * @param pullRequest
+     * @param timeDelay
+     * @return void
+     * @author chenqi
+     * @date 2021/1/5 13:16
+     */
+    public void executePullRequestLater(final PullRequest pullRequest, final long timeDelay) {
+        if (!isStopped()) {
+            this.scheduledExecutorService.schedule(new Runnable() {
+                @Override
+                public void run() {
+                    PullMessageService.this.executePullRequestImmediately(pullRequest);
+                }
+            }, timeDelay, TimeUnit.MILLISECONDS);
+        } else {
+            log.warn("PullMessageServiceScheduledThread has shutdown");
+        }
+    }
+    /**
+     * 立即执行拉取请求
+     * @param pullRequest
+     * @return void
+     * @author chenqi
+     * @date 2021/1/5 13:16
+     */
+    public void executePullRequestImmediately(final PullRequest pullRequest) {
+        try {
+            this.pullRequestQueue.put(pullRequest);
+        } catch (InterruptedException e) {
+            log.error("executePullRequestImmediately pullRequestQueue.put", e);
+        }
+    }
+```
+
+什么时候会执行上述的方法呢?答案就在`public void pullMessage(final PullRequest pullRequest) `中,`switch (pullResult.getPullStatus()) `中调用了`DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);`.
+
+大概意思是PullRequest拉取任务执行完一次拉取任务后,有将PullRequest放入PullRequestQueue.
+
+分析`pullMessage(final PullRequest pullRequest)`.
+
+```java
+//DefaultMQPushConsumerImpl#pullMessage
+//从PullRequest获取ProcessQueue队列
+final ProcessQueue processQueue = pullRequest.getProcessQueue();
+//当前队列是否被丢弃
+if (processQueue.isDropped()) {
+  log.info("the pull request[{}] is dropped.", pullRequest.toString());
+  return;
+}
+//pullMessage(final PullRequest pullRequest)
+pullRequest.getProcessQueue().setLastPullTimestamp(System.currentTimeMillis());
+
+try {
+  //确认消息的状态
+  this.makeSureStateOK();
+} catch (MQClientException e) {
+  log.warn("pullMessage exception, consumer state not ok", e);
+  this.executePullRequestLater(pullRequest, pullTimeDelayMillsWhenException);
+  return;
+}
+//如果当前消费者被挂起,则将拉取任务延迟1s再次放入到PullMessageService队列中
+if (this.isPause()) {
+  log.warn("consumer was paused, execute pull request later. instanceName={}, group={}", this.defaultMQPushConsumer.getInstanceName(), this.defaultMQPushConsumer.getConsumerGroup());
+  this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_SUSPEND);
+  return;
+}
+```
 
 
 
+下面的代码是进行消息的流控,有2个维度,消息的数量,大小,跨度
+
+```java
+//如果消息的数量 大于  消息拉取的最大数量
+if (cachedMessageCount > this.defaultMQPushConsumer.getPullThresholdForQueue()) {
+  //放入延迟队列,延迟50ms
+  this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL);
+  if ((queueFlowControlTimes++ % 1000) == 0) {
+    log.warn(
+      "the cached message count exceeds the threshold {}, so do flow control, minOffset={}, maxOffset={}, count={}, size={} MiB, pullRequest={}, flowControlTimes={}",
+      this.defaultMQPushConsumer.getPullThresholdForQueue(), processQueue.getMsgTreeMap().firstKey(), processQueue.getMsgTreeMap().lastKey(), cachedMessageCount, cachedMessageSizeInMiB, pullRequest, queueFlowControlTimes);
+  }
+  return;
+}
+
+//如果消息大小 大于 消息拉取的大小
+if (cachedMessageSizeInMiB > this.defaultMQPushConsumer.getPullThresholdSizeForQueue()) {
+  //放入延迟队列,延迟50ms
+  this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL);
+  if ((queueFlowControlTimes++ % 1000) == 0) {
+    log.warn(
+      "the cached message size exceeds the threshold {} MiB, so do flow control, minOffset={}, maxOffset={}, count={}, size={} MiB, pullRequest={}, flowControlTimes={}",
+      this.defaultMQPushConsumer.getPullThresholdSizeForQueue(), processQueue.getMsgTreeMap().firstKey(), processQueue.getMsgTreeMap().lastKey(), cachedMessageCount, cachedMessageSizeInMiB, pullRequest, queueFlowControlTimes);
+  }
+  return;
+}
+if (!this.consumeOrderly) {
+//队列最大的跨度 大于 消费者消费时处理队列最大跨度 就延迟拉取消息
+  if (processQueue.getMaxSpan() > this.defaultMQPushConsumer.getConsumeConcurrentlyMaxSpan()) {
+    this.executePullRequestLater(pullRequest, PULL_TIME_DELAY_MILLS_WHEN_FLOW_CONTROL);
+    if ((queueMaxSpanFlowControlTimes++ % 1000) == 0) {
+      log.warn(
+        "the queue's messages, span too long, so do flow control, minOffset={}, maxOffset={}, maxSpan={}, pullRequest={}, flowControlTimes={}",
+        processQueue.getMsgTreeMap().firstKey(), processQueue.getMsgTreeMap().lastKey(), processQueue.getMaxSpan(),
+        pullRequest, queueMaxSpanFlowControlTimes);
+    }
+    return;
+  }
+}
+```
+
+获得订阅数据
+
+```java
+ //获得订阅数据,如果为null 延迟拉取.
+final SubscriptionData subscriptionData = this.rebalanceImpl.getSubscriptionInner().get(pullRequest.getMessageQueue().getTopic());
+if (null == subscriptionData) {
+  this.executePullRequestLater(pullRequest, pullTimeDelayMillsWhenException);
+  log.warn("find the consumer's subscription failed, {}", pullRequest);
+  return;
+}
+```
+
+构建参数,与broker进行交互
+
+```java
+
+//构建消息拉取的系统标记
+int sysFlag = PullSysFlag.buildSysFlag(
+  commitOffsetEnable, // commitOffset
+  true, // suspend
+  subExpression != null, // subscription
+  classFilter // class filter
+);
+//pullKernelImpl与broker服务端进行交互
+this.pullAPIWrapper.pullKernelImpl(
+  pullRequest.getMessageQueue(),
+  subExpression,
+  subscriptionData.getExpressionType(),
+  subscriptionData.getSubVersion(),
+  pullRequest.getNextOffset(),
+  this.defaultMQPushConsumer.getPullBatchSize(),
+  sysFlag,
+  commitOffsetValue,
+  BROKER_SUSPEND_MAX_TIME_MILLIS,
+  CONSUMER_TIMEOUT_MILLIS_WHEN_SUSPEND,
+  CommunicationMode.ASYNC,
+  pullCallback
+);
+```
 
 
 
+```java
+//根据brokerName和brokerId从MQClientInstance中获取broker地址
+FindBrokerResult findBrokerResult =
+            this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(),
+                this.recalculatePullFromWhichNode(mq), false);
 
-# 第五章
+        if (null == findBrokerResult) {
+            this.mQClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
+            findBrokerResult =
+                this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(),
+                    this.recalculatePullFromWhichNode(mq), false);
+        }
+```
+
+最后通过`this.mQClientFactory.getMQClientAPIImpl().pullMessage`发送消息到broker,请求头为`RequestCode.PULL_MESSAGE`.
+
+```
+PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
+    brokerAddr,
+    requestHeader,
+    timeoutMillis,
+    communicationMode,
+    pullCallback);
+```
 
 
 
-
+接下来我们查看broker端怎么处理`RequestCode.PULL_MESSAGE`的请求.
 
 
 

@@ -37,6 +37,7 @@ import org.apache.rocketmq.common.protocol.body.ProcessQueueInfo;
 
 /**
  * Queue consumption snapshot
+ * ProcessQueue是MessageQueue在消费端的重现,快照
  */
 public class ProcessQueue {
     public final static long REBALANCE_LOCK_MAX_LIVE_TIME =
@@ -44,9 +45,21 @@ public class ProcessQueue {
     public final static long REBALANCE_LOCK_INTERVAL = Long.parseLong(System.getProperty("rocketmq.client.rebalance.lockInterval", "20000"));
     private final static long PULL_MAX_IDLE_TIME = Long.parseLong(System.getProperty("rocketmq.client.pull.pullMaxIdleTime", "120000"));
     private final InternalLogger log = ClientLogger.getLog();
+    /**
+     * 读写锁,控制多线程并发修改msgTreeMap
+     */
     private final ReadWriteLock lockTreeMap = new ReentrantReadWriteLock();
+    /**
+     * 消息存储容器,key为ConsumeQueue中的偏移量,value为MessageExt实体
+     */
     private final TreeMap<Long, MessageExt> msgTreeMap = new TreeMap<Long, MessageExt>();
+    /**
+     * ProcessQueue中总消息数
+     */
     private final AtomicLong msgCount = new AtomicLong();
+    /**
+     * 消息大小
+     */
     private final AtomicLong msgSize = new AtomicLong();
     private final Lock lockConsume = new ReentrantLock();
     /**
@@ -54,6 +67,9 @@ public class ProcessQueue {
      */
     private final TreeMap<Long, MessageExt> consumingMsgOrderlyTreeMap = new TreeMap<Long, MessageExt>();
     private final AtomicLong tryUnlockTimes = new AtomicLong(0);
+    /**
+     * 队列最大偏移量
+     */
     private volatile long queueOffsetMax = 0L;
     private volatile boolean dropped = false;
     private volatile long lastPullTimestamp = System.currentTimeMillis();
@@ -63,16 +79,32 @@ public class ProcessQueue {
     private volatile boolean consuming = false;
     private volatile long msgAccCnt = 0;
 
+    /**
+     * 判断锁是否过期,超时时间为30s
+     * @return boolean
+     * @author chenqi
+     * @date 2021/1/5 13:40
+     */
     public boolean isLockExpired() {
         return (System.currentTimeMillis() - this.lastLockTimestamp) > REBALANCE_LOCK_MAX_LIVE_TIME;
     }
 
+    /**
+     * 判断拉取PullMessageService是否空闲,默认为120s
+     * @return boolean
+     * @author chenqi
+     * @date 2021/1/5 13:41
+     */
     public boolean isPullExpired() {
         return (System.currentTimeMillis() - this.lastPullTimestamp) > PULL_MAX_IDLE_TIME;
     }
 
     /**
+     * 删除消费超时的消息,默认超过15分钟未消费的消息延迟3个延迟级别在消费
      * @param pushConsumer
+     * @return void
+     * @author chenqi
+     * @date 2021/1/5 13:42
      */
     public void cleanExpiredMsg(DefaultMQPushConsumer pushConsumer) {
         if (pushConsumer.getDefaultMQPushConsumerImpl().isConsumeOrderly()) {
@@ -85,6 +117,7 @@ public class ProcessQueue {
             try {
                 this.lockTreeMap.readLock().lockInterruptibly();
                 try {
+                    //判断消息是否超过15分钟,pushConsumer.getConsumeTimeout()=15
                     if (!msgTreeMap.isEmpty() && System.currentTimeMillis() - Long.parseLong(MessageAccessor.getConsumeStartTimeStamp(msgTreeMap.firstEntry().getValue())) > pushConsumer.getConsumeTimeout() * 60 * 1000) {
                         msg = msgTreeMap.firstEntry().getValue();
                     } else {
@@ -99,7 +132,7 @@ public class ProcessQueue {
             }
 
             try {
-
+                //延迟3个级别,然后把消息从当前队列中删除,放入延迟队列
                 pushConsumer.sendMessageBack(msg, 3);
                 log.info("send expire msg back. topic={}, msgId={}, storeHost={}, queueId={}, queueOffset={}", msg.getTopic(), msg.getMsgId(), msg.getStoreHost(), msg.getQueueId(), msg.getQueueOffset());
                 try {
@@ -124,6 +157,13 @@ public class ProcessQueue {
         }
     }
 
+    /**
+     * 添加消息
+     * @param msgs
+     * @return boolean
+     * @author chenqi
+     * @date 2021/1/5 13:44
+     */
     public boolean putMessage(final List<MessageExt> msgs) {
         boolean dispatchToConsume = false;
         try {
@@ -165,6 +205,12 @@ public class ProcessQueue {
         return dispatchToConsume;
     }
 
+    /**
+     * 获取消息最大间隔
+     * @return long
+     * @author chenqi
+     * @date 2021/1/5 13:51
+     */
     public long getMaxSpan() {
         try {
             this.lockTreeMap.readLock().lockInterruptibly();
@@ -182,6 +228,13 @@ public class ProcessQueue {
         return 0;
     }
 
+    /**
+     *移除消息
+     * @param msgs
+     * @return long
+     * @author chenqi
+     * @date 2021/1/5 13:53
+     */
     public long removeMessage(final List<MessageExt> msgs) {
         long result = -1;
         final long now = System.currentTimeMillis();
@@ -243,6 +296,12 @@ public class ProcessQueue {
         this.locked = locked;
     }
 
+    /**
+     * 清除consumingMsgOrderlyTreeMap
+     * @return void
+     * @author chenqi
+     * @date 2021/1/5 15:02
+     */
     public void rollback() {
         try {
             this.lockTreeMap.writeLock().lockInterruptibly();

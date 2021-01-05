@@ -140,6 +140,24 @@ public class PullAPIWrapper {
         }
     }
 
+    /**
+     *
+     * @param mq 从哪个消息队列拉取消息
+     * @param subExpression 消息过滤表达式
+     * @param expressionType 消息表达式类型
+     * @param subVersion 
+     * @param offset 消息拉取偏移量
+     * @param maxNums 本次最大拉取消息条数 默认为32条
+     * @param sysFlag 拉取系统标记
+     * @param commitOffset 当前MessageQueue的消费进度
+     * @param brokerSuspendMaxTimeMillis 消息拉取过程中允许broker挂起时间
+     * @param timeoutMillis  消息拉取超时时间
+     * @param communicationMode 消息拉取模式,默认为异步拉取
+     * @param pullCallback 从broker拉取消息后的回调方法
+     * @return org.apache.rocketmq.client.consumer.PullResult
+     * @author chenqi
+     * @date 2021/1/5 15:04
+     */
     public PullResult pullKernelImpl(
         final MessageQueue mq,
         final String subExpression,
@@ -154,9 +172,11 @@ public class PullAPIWrapper {
         final CommunicationMode communicationMode,
         final PullCallback pullCallback
     ) throws MQClientException, RemotingException, MQBrokerException, InterruptedException {
+        //根据brokerName和brokerId从MQClientInstance中获取broker地址
         FindBrokerResult findBrokerResult =
             this.mQClientFactory.findBrokerAddressInSubscribe(mq.getBrokerName(),
                 this.recalculatePullFromWhichNode(mq), false);
+
         if (null == findBrokerResult) {
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(mq.getTopic());
             findBrokerResult =
@@ -193,10 +213,13 @@ public class PullAPIWrapper {
             requestHeader.setExpressionType(expressionType);
 
             String brokerAddr = findBrokerResult.getBrokerAddr();
+            //如果消息过来模式为类模式
             if (PullSysFlag.hasClassFilterFlag(sysFlagInner)) {
+                //通过topic和broker地址找到注册在broker上的filterServer地址,从FilterServer上拉取消息
                 brokerAddr = computPullFromWhichFilterServer(mq.getTopic(), brokerAddr);
             }
 
+            //向broker发送请求
             PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
                 brokerAddr,
                 requestHeader,
