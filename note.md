@@ -1059,7 +1059,7 @@ PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
 
 
 
-接下来我们查看broker端怎么处理`RequestCode.PULL_MESSAGE`的请求.
+接下来我们查看broker端怎么处理`RequestCode.PULL_MESSAGE`的请求.broker端解析器为`PullMessageProcessor#processRequest`
 
 
 
