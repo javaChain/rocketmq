@@ -331,7 +331,10 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                                 pullRequest.getMessageQueue().getTopic(), pullRT);
 
                             long firstMsgOffset = Long.MAX_VALUE;
+                            //msgFoundList是服务端返回来的,服务端只是验证了TAG的hashcode,客户端还会再次根据TAG过滤,可能出现MsgFoundList为空
                             if (pullResult.getMsgFoundList() == null || pullResult.getMsgFoundList().isEmpty()) {
+                                //如果msgFoundList为空,则立即将PullRequest放入到PullMessageService的pullRequestQueue,
+                                //便于PullMessageService再次拉取消息
                                 DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
                             } else {
                                 firstMsgOffset = pullResult.getMsgFoundList().get(0).getQueueOffset();
@@ -385,7 +388,7 @@ public class DefaultMQPushConsumerImpl implements MQConsumerInner {
                             log.warn("the pull request offset illegal, {} {}",
                                 pullRequest.toString(), pullResult.toString());
                             pullRequest.setNextOffset(pullResult.getNextBeginOffset());
-
+                            //丢弃该队列
                             pullRequest.getProcessQueue().setDropped(true);
                             DefaultMQPushConsumerImpl.this.executeTaskLater(new Runnable() {
 

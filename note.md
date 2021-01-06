@@ -1143,23 +1143,242 @@ PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
 
   ## Consumer收到响应消息之后的处理
 
+  消息发送请求给客户端是调用`this.pullMessageAsync(addr, request, timeoutMillis, pullCallback);`发送请求到broker,broker处理完请求把响应结果response返回来,然后解析response
+
+  ```java
+  public PullResult pullMessage(
+          final String addr,
+          final PullMessageRequestHeader requestHeader,
+          final long timeoutMillis,
+          final CommunicationMode communicationMode,
+          final PullCallback pullCallback
+      ) throws RemotingException, MQBrokerException, InterruptedException {
+          RemotingCommand request = RemotingCommand.createRequestCommand(RequestCode.PULL_MESSAGE, requestHeader);
   
+          switch (communicationMode) {
+              case ONEWAY:
+                  assert false;
+                  return null;
+              case ASYNC:
+                  this.pullMessageAsync(addr, request, timeoutMillis, pullCallback);
+                  return null;
+              case SYNC:
+                  return this.pullMessageSync(addr, request, timeoutMillis);
+              default:
+                  assert false;
+                  break;
+          }
+  
+          return null;
+      }
+  
+      private void pullMessageAsync(
+          final String addr,
+          final RemotingCommand request,
+          final long timeoutMillis,
+          final PullCallback pullCallback
+      ) throws RemotingException, InterruptedException {
+          this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
+              @Override
+              public void operationComplete(ResponseFuture responseFuture) {
+                  RemotingCommand response = responseFuture.getResponseCommand();
+                  if (response != null) {
+                      try {
+                          //拉取broker的响应结果
+                          PullResult pullResult = MQClientAPIImpl.this.processPullResponse(response);
+                          assert pullResult != null;
+                          //将响应结果放入pullCallback
+                          pullCallback.onSuccess(pullResult);
+                      } catch (Exception e) {
+                          pullCallback.onException(e);
+                      }
+                  } else {
+                      if (!responseFuture.isSendRequestOK()) {
+                          pullCallback.onException(new MQClientException("send request failed to " + addr + ". Request: " + request, responseFuture.getCause()));
+                      } else if (responseFuture.isTimeout()) {
+                          pullCallback.onException(new MQClientException("wait response from " + addr + " timeout :" + responseFuture.getTimeoutMillis() + "ms" + ". Request: " + request,
+                              responseFuture.getCause()));
+                      } else {
+                          pullCallback.onException(new MQClientException("unknown reason. addr: " + addr + ", timeoutMillis: " + timeoutMillis + ". Request: " + request, responseFuture.getCause()));
+                      }
+                  }
+              }
+          });
+      }
+  ```
+
+- 根据响应结果解码成PullResultExt对象,此时只是从网络中读取消息列表到byte[] messageBinary属性
+
+  ```java
+  private PullResult processPullResponse(
+          final RemotingCommand response) throws MQBrokerException, RemotingCommandException {
+          PullStatus pullStatus = PullStatus.NO_NEW_MSG;
+          switch (response.getCode()) {
+              case ResponseCode.SUCCESS:
+                  pullStatus = PullStatus.FOUND;
+                  break;
+              case ResponseCode.PULL_NOT_FOUND:
+                  pullStatus = PullStatus.NO_NEW_MSG;
+                  break;
+              case ResponseCode.PULL_RETRY_IMMEDIATELY:
+                  pullStatus = PullStatus.NO_MATCHED_MSG;
+                  break;
+              case ResponseCode.PULL_OFFSET_MOVED:
+                  pullStatus = PullStatus.OFFSET_ILLEGAL;
+                  break;
+  
+              default:
+                  throw new MQBrokerException(response.getCode(), response.getRemark());
+          }
+  
+          PullMessageResponseHeader responseHeader =
+              (PullMessageResponseHeader) response.decodeCommandCustomHeader(PullMessageResponseHeader.class);
+  
+          return new PullResultExt(pullStatus, responseHeader.getNextBeginOffset(), responseHeader.getMinOffset(),
+              responseHeader.getMaxOffset(), null, responseHeader.getSuggestWhichBrokerId(), response.getBody());
+      }
+  ```
+  
+  ![image-20210106110944768](note_images/image-20210106110944768.png)
+  
+- 调用pullAPIWrapper的processPullResult将消息字节解码成解码成消息列表填充msgFoundList,并对消息过滤(tag)
+
+  ```java
+  //pullCallback.onSuccess(pullResult); 调用匿名内部类
+  //DefaultMQPullConsumerImpl$pullCallback#onSuccess
+  PullResult userPullResult = DefaultMQPullConsumerImpl.this.pullAPIWrapper.processPullResult(mq, pullResult, subscriptionData);
+  
+  ```
+
+- `PullCallback回调函数处理`,源码DefaultMQPushConsumerImpl第313行附近
+
+  ```java
+  //拉取消息
+          PullCallback pullCallback = new PullCallback() {
+              @Override
+              public void onSuccess(PullResult pullResult) {
+                  if (pullResult != null) {
+                      //解析PullResult
+                      pullResult = DefaultMQPushConsumerImpl.this.pullAPIWrapper.processPullResult(pullRequest.getMessageQueue(), pullResult,
+                          subscriptionData);
+                      //根据PullResult状态判断
+                      switch (pullResult.getPullStatus()) {
+                          //如果有新的消息
+                          case FOUND:
+                              //获得下一个偏移量
+                              long prevRequestOffset = pullRequest.getNextOffset();
+                              //设置偏移量
+                              pullRequest.setNextOffset(pullResult.getNextBeginOffset());
+                              //获得当前拉取的时间
+                              long pullRT = System.currentTimeMillis() - beginTimestamp;
+                              DefaultMQPushConsumerImpl.this.getConsumerStatsManager().incPullRT(pullRequest.getConsumerGroup(),
+                                  pullRequest.getMessageQueue().getTopic(), pullRT);
+  
+                              long firstMsgOffset = Long.MAX_VALUE;
+                              //msgFoundList是服务端返回来的,服务端只是验证了TAG的hashcode,客户端还会再次根据TAG过滤,可能出现MsgFoundList为空
+                              if (pullResult.getMsgFoundList() == null || pullResult.getMsgFoundList().isEmpty()) {
+                                  //如果msgFoundList为空,则立即将PullRequest放入到PullMessageService的pullRequestQueue,
+                                  //便于PullMessageService再次拉取消息
+                                  DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
+                              } else {
+                                  firstMsgOffset = pullResult.getMsgFoundList().get(0).getQueueOffset();
+  
+                                  DefaultMQPushConsumerImpl.this.getConsumerStatsManager().incPullTPS(pullRequest.getConsumerGroup(),
+                                      pullRequest.getMessageQueue().getTopic(), pullResult.getMsgFoundList().size());
+  
+                                  boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
+                                  DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
+                                      pullResult.getMsgFoundList(),
+                                      processQueue,
+                                      pullRequest.getMessageQueue(),
+                                      dispatchToConsume);
+  
+                                  if (DefaultMQPushConsumerImpl.this.defaultMQPushConsumer.getPullInterval() > 0) {
+                                      DefaultMQPushConsumerImpl.this.executePullRequestLater(pullRequest,
+                                          DefaultMQPushConsumerImpl.this.defaultMQPushConsumer.getPullInterval());
+                                  } else {
+                                      DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
+                                  }
+                              }
+  
+                              if (pullResult.getNextBeginOffset() < prevRequestOffset
+                                  || firstMsgOffset < prevRequestOffset) {
+                                  log.warn(
+                                      "[BUG] pull message result maybe data wrong, nextBeginOffset: {} firstMsgOffset: {} prevRequestOffset: {}",
+                                      pullResult.getNextBeginOffset(),
+                                      firstMsgOffset,
+                                      prevRequestOffset);
+                              }
+  
+                              break;
+                          //没有新的消息
+                          case NO_NEW_MSG:
+                              pullRequest.setNextOffset(pullResult.getNextBeginOffset());
+  
+                              DefaultMQPushConsumerImpl.this.correctTagsOffset(pullRequest);
+  
+                              DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
+                              break;
+                          //没有匹配的消息
+                          case NO_MATCHED_MSG:
+                              pullRequest.setNextOffset(pullResult.getNextBeginOffset());
+  
+                              DefaultMQPushConsumerImpl.this.correctTagsOffset(pullRequest);
+  
+                              DefaultMQPushConsumerImpl.this.executePullRequestImmediately(pullRequest);
+                              break;
+                          //偏移量异常
+                          case OFFSET_ILLEGAL:
+                              log.warn("the pull request offset illegal, {} {}",
+                                  pullRequest.toString(), pullResult.toString());
+                              pullRequest.setNextOffset(pullResult.getNextBeginOffset());
+  
+                              pullRequest.getProcessQueue().setDropped(true);
+                              DefaultMQPushConsumerImpl.this.executeTaskLater(new Runnable() {
+  
+                                  @Override
+                                  public void run() {
+                                      try {
+                                          DefaultMQPushConsumerImpl.this.offsetStore.updateOffset(pullRequest.getMessageQueue(),
+                                              pullRequest.getNextOffset(), false);
+  
+                                          DefaultMQPushConsumerImpl.this.offsetStore.persist(pullRequest.getMessageQueue());
+  
+                                          DefaultMQPushConsumerImpl.this.rebalanceImpl.removeProcessQueue(pullRequest.getMessageQueue());
+  
+                                          log.warn("fix the pull request offset, {}", pullRequest);
+                                      } catch (Throwable e) {
+                                          log.error("executeTaskLater Exception", e);
+                                      }
+                                  }
+                              }, 10000);
+                              break;
+                          default:
+                              break;
+                      }
+                  }
+              }
+          
+  ```
+
+- 首先将拉取的消息存入ProcessQueue,然后将拉取的消息提交到ConsumeMessageService中供消费者消费
+
+  ```java
+  boolean dispatchToConsume = processQueue.putMessage(pullResult.getMsgFoundList());
+                                  DefaultMQPushConsumerImpl.this.consumeMessageService.submitConsumeRequest(
+                                      pullResult.getMsgFoundList(),
+                                      processQueue,
+                                      pullRequest.getMessageQueue(),
+                                      dispatchToConsume);
+  ```
+
+- 将消息提交给消费者线程之后PullCallback将立即返回,
 
 
 
+RocketMQ消息拉取流程
 
+![image-20210106130513746](note_images/image-20210106130513746.png)
 
+## 消息队列负载与重新分布
 
-producer消息的类型:
-1. 普通消息(批量)
-2. 顺序消息
-3. 事务消息
-4. 延迟消息
-
-broker:
-1. 物理存储文件分析
-2. 文件清理策略
-
-consumer:
-1. 消息重试与死信队列
-2. 消费者负载与rebalance
