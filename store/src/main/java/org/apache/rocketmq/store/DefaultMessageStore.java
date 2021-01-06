@@ -655,15 +655,28 @@ public class DefaultMessageStore implements MessageStore {
     public CommitLog getCommitLog() {
         return commitLog;
     }
-
+    /**
+     *
+     * @param group 消费组名称
+     * @param topic 主题名称
+     * @param queueId 队列Id
+     * @param offset 待拉取偏移量
+     * @param maxMsgNums 最大拉取消息条数
+     * @param messageFilter 消息过滤器
+     * @return org.apache.rocketmq.store.GetMessageResult
+     * @author chenqi
+     * @date 2021/1/6 09:30
+     */
     public GetMessageResult getMessage(final String group, final String topic, final int queueId, final long offset,
         final int maxMsgNums,
         final MessageFilter messageFilter) {
+
+        //如果服务关闭
         if (this.shutdown) {
             log.warn("message store has shutdown, so getMessage is forbidden");
             return null;
         }
-
+        //如果服务不可读
         if (!this.runningFlags.isReadable()) {
             log.warn("message store is not readable, so getMessage is forbidden " + this.runningFlags.getFlagBits());
             return null;
@@ -672,29 +685,31 @@ public class DefaultMessageStore implements MessageStore {
         long beginTime = this.getSystemClock().now();
 
         GetMessageStatus status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
-        long nextBeginOffset = offset;
+        long nextBeginOffset = offset;  //consumer传递过来的偏移量
         long minOffset = 0;
         long maxOffset = 0;
 
         GetMessageResult getResult = new GetMessageResult();
 
-        final long maxOffsetPy = this.commitLog.getMaxOffset();
+        final long maxOffsetPy = this.commitLog.getMaxOffset();  //获得commitLog的最大偏移量
 
         ConsumeQueue consumeQueue = findConsumeQueue(topic, queueId);
         if (consumeQueue != null) {
-            minOffset = consumeQueue.getMinOffsetInQueue();
-            maxOffset = consumeQueue.getMaxOffsetInQueue();
+            minOffset = consumeQueue.getMinOffsetInQueue();  //获得ConsumeQueue队列的最小偏移量
+            maxOffset = consumeQueue.getMaxOffsetInQueue();  //获得ConsumeQueue队列的最大偏移量
 
-            if (maxOffset == 0) {
+            if (maxOffset == 0) {  //表示当前消费队列中没有消息
                 status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
+                //如果broker为主节点,下次拉取偏移量为0,否则为offset
                 nextBeginOffset = nextOffsetCorrection(offset, 0);
-            } else if (offset < minOffset) {
+            } else if (offset < minOffset) {   //consumer想拉取的偏移量 小于 最小的偏移量
                 status = GetMessageStatus.OFFSET_TOO_SMALL;
+                //如果broker为主节点,下次拉取偏移量为minOffset,否则为offset
                 nextBeginOffset = nextOffsetCorrection(offset, minOffset);
-            } else if (offset == maxOffset) {
+            } else if (offset == maxOffset) {  //如果待拉取偏移量等于队列最大偏移量
                 status = GetMessageStatus.OFFSET_OVERFLOW_ONE;
                 nextBeginOffset = nextOffsetCorrection(offset, offset);
-            } else if (offset > maxOffset) {
+            } else if (offset > maxOffset) {  //如果待拉取偏移量 大于 最大偏移量 偏移量越界
                 status = GetMessageStatus.OFFSET_OVERFLOW_BADLY;
                 if (0 == minOffset) {
                     nextBeginOffset = nextOffsetCorrection(offset, minOffset);

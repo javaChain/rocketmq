@@ -746,7 +746,8 @@ private boolean isSpaceToDelete() {
 
 - 顺序消息
 
-  
+
+## Consumer启动
 
 
 quickstart.Consumer启动源码跟踪:
@@ -917,6 +918,8 @@ public synchronized void start() throws MQClientException {
 
 大概意思是PullRequest拉取任务执行完一次拉取任务后,有将PullRequest放入PullRequestQueue.
 
+## Consumer拉取消息
+
 分析`pullMessage(final PullRequest pullRequest)`.
 
 ```java
@@ -1059,11 +1062,88 @@ PullResult pullResult = this.mQClientFactory.getMQClientAPIImpl().pullMessage(
 
 
 
+## broker响应消息
+
 接下来我们查看broker端怎么处理`RequestCode.PULL_MESSAGE`的请求.broker端解析器为`PullMessageProcessor#processRequest`
 
+方法太长不放上来了
 
+- 首先根据订阅消息,构建过滤器
 
+- 调用`MessageStore.getMessage`查找消息
 
+- 根据主题名称与队列编号编号获取消费队列
+
+  ```java
+  GetMessageStatus status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
+  long nextBeginOffset = offset;  //consumer传递过来的偏移量
+  long minOffset = 0;
+  long maxOffset = 0;
+  
+  GetMessageResult getResult = new GetMessageResult();
+  
+  final long maxOffsetPy = this.commitLog.getMaxOffset();  //获得commitLog的最大偏移量
+  
+  ConsumeQueue consumeQueue = findConsumeQueue(topic, queueId);
+  ```
+
+- 消息偏移量校对
+
+  ```java
+  if (maxOffset == 0) {  //表示当前消费队列中没有消息
+    status = GetMessageStatus.NO_MESSAGE_IN_QUEUE;
+    //如果broker为主节点,下次拉取偏移量为0,否则为offset
+    nextBeginOffset = nextOffsetCorrection(offset, 0);
+  } else if (offset < minOffset) {   //consumer想拉取的偏移量 小于 最小的偏移量
+    status = GetMessageStatus.OFFSET_TOO_SMALL;
+    //如果broker为主节点,下次拉取偏移量为minOffset,否则为offset
+    nextBeginOffset = nextOffsetCorrection(offset, minOffset);
+  } else if (offset == maxOffset) {  //如果待拉取偏移量等于队列最大偏移量
+    status = GetMessageStatus.OFFSET_OVERFLOW_ONE;
+    nextBeginOffset = nextOffsetCorrection(offset, offset);
+  } else if (offset > maxOffset) {  //如果待拉取偏移量 大于 最大偏移量 偏移量越界
+    status = GetMessageStatus.OFFSET_OVERFLOW_BADLY;
+    if (0 == minOffset) {
+      nextBeginOffset = nextOffsetCorrection(offset, minOffset);
+    } else {
+      nextBeginOffset = nextOffsetCorrection(offset, maxOffset);
+    }
+  }
+  ```
+
+- 如果待拉取偏移量大于minOffset小于maxOffset,从当前offset处尝试拉取32条消息,根据消息队列偏移量(ConsumeQueue)从CommitLog文件中查找消息
+
+- 根据PullResult填充ResponseHeader的nextBeginOffset,minOffset,maxOffset
+
+  ```java
+  response.setRemark(getMessageResult.getStatus().name());
+  responseHeader.setNextBeginOffset(getMessageResult.getNextBeginOffset());
+  responseHeader.setMinOffset(getMessageResult.getMinOffset());
+  responseHeader.setMaxOffset(getMessageResult.getMaxOffset());
+  ```
+
+- 根据主从同步延迟,如果从节点数据包含下一次拉取的偏移量,设置下一次拉取任务的taskId
+
+- 根据GetMessageResult编码转换关系
+
+  ![image-20210106103727105](note_images/image-20210106103727105.png)
+
+- 如果CommitLog标记可用,并且当前节点为主节点,则更新消费进度
+
+  ```java
+  boolean storeOffsetEnable = brokerAllowSuspend;
+          storeOffsetEnable = storeOffsetEnable && hasCommitOffsetFlag;
+          storeOffsetEnable = storeOffsetEnable
+              && this.brokerController.getMessageStoreConfig().getBrokerRole() != BrokerRole.SLAVE;
+          if (storeOffsetEnable) { //如果CommitLog标记可用,并且当前节点为主节点,则更新消费进度
+              this.brokerController.getConsumerOffsetManager().commitOffset(RemotingHelper.parseChannelRemoteAddr(channel),
+                  requestHeader.getConsumerGroup(), requestHeader.getTopic(), requestHeader.getQueueId(), requestHeader.getCommitOffset());
+          }
+  ```
+
+  ## Consumer收到响应消息之后的处理
+
+  
 
 
 
