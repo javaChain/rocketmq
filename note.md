@@ -1382,3 +1382,105 @@ RocketMQ消息拉取流程
 
 ## 消息队列负载与重新分布
 
+RocketMQ消息队列重新分布由RebalanceService线程来实现的,一个MQClientInstance持有一个RebalanceService实现
+
+```java
+private void rebalanceByTopic(final String topic, final boolean isOrder) {
+        switch (messageModel) {
+            //广播 所有的消息消费者都推送消息
+            case BROADCASTING: {
+                Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
+                if (mqSet != null) {
+                    boolean changed = this.updateProcessQueueTableInRebalance(topic, mqSet, isOrder);
+                    if (changed) {
+                        this.messageQueueChanged(topic, mqSet, mqSet);
+                        log.info("messageQueueChanged {} {} {} {}",
+                            consumerGroup,
+                            topic,
+                            mqSet,
+                            mqSet);
+                    }
+                } else {
+                    log.warn("doRebalance, {}, but the topic[{}] not exist.", consumerGroup, topic);
+                }
+                break;
+            }
+            //集群
+            case CLUSTERING: {
+                //从本地缓存中获取messageQueue
+                Set<MessageQueue> mqSet = this.topicSubscribeInfoTable.get(topic);
+                //根据主题和消费者组获取所有的消费者id
+                List<String> cidAll = this.mQClientFactory.findConsumerIdList(topic, consumerGroup);
+                if (null == mqSet) {
+                    if (!topic.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
+                        log.warn("doRebalance, {}, but the topic[{}] not exist.", consumerGroup, topic);
+                    }
+                }
+
+                if (null == cidAll) {
+                    log.warn("doRebalance, {} {}, get consumer id list failed", consumerGroup, topic);
+                }
+
+                if (mqSet != null && cidAll != null) {
+                    List<MessageQueue> mqAll = new ArrayList<MessageQueue>();
+                    mqAll.addAll(mqSet);
+
+                    Collections.sort(mqAll);
+                    Collections.sort(cidAll);
+
+                    AllocateMessageQueueStrategy strategy = this.allocateMessageQueueStrategy;
+
+                    List<MessageQueue> allocateResult = null;
+                    try {
+                        allocateResult = strategy.allocate(
+                            this.consumerGroup,
+                            this.mQClientFactory.getClientId(),
+                            mqAll,
+                            cidAll);
+                    } catch (Throwable e) {
+                        log.error("AllocateMessageQueueStrategy.allocate Exception. allocateMessageQueueStrategyName={}", strategy.getName(),
+                            e);
+                        return;
+                    }
+
+                    Set<MessageQueue> allocateResultSet = new HashSet<MessageQueue>();
+                    if (allocateResult != null) {
+                        allocateResultSet.addAll(allocateResult);
+                    }
+
+                    boolean changed = this.updateProcessQueueTableInRebalance(topic, allocateResultSet, isOrder);
+                    if (changed) {
+                        log.info(
+                            "rebalanced result changed. allocateMessageQueueStrategyName={}, group={}, topic={}, clientId={}, mqAllSize={}, cidAllSize={}, rebalanceResultSize={}, rebalanceResultSet={}",
+                            strategy.getName(), consumerGroup, topic, this.mQClientFactory.getClientId(), mqSet.size(), cidAll.size(),
+                            allocateResultSet.size(), allocateResultSet);
+                        this.messageQueueChanged(topic, mqSet, allocateResultSet);
+                    }
+                }
+                break;
+            }
+            default:
+                break;
+        }
+    }
+```
+
+​	只讲集群的负载,广播直接群发
+
+- 从本地缓存中获取主题队列的信息,然后根据主题和消费者组从broker获取所有的消费者id
+- 首先对cidAll,mqAll进行排序,然后根据算法进行分配
+  - AllocateMessageQueueAveragely: 平均分配算法
+  - AllocateMessageQueueAveragelyByCircle: 平均轮询分配
+  - AllocateMessageQueueConsistentHash: 一致性hash
+  - AllocateMessageQueueByConfig: 根据配置,为每一个消费者配置固定的消息队列
+  - AllocateMessageQueueByMachineRoom: 根据broker部署机房名称,分配每个消费者到不同的broker队列上
+- 对比消息队列是否发生变化,更新messageQueue
+
+
+
+集群内多个消费者是如何负载主题下的多个消费队列，并且如果有新的消费者加入时，消息队列又会如何重新分布?
+	由于每次进行队列重新负载时会从Broker实时查询出当前消费组内所有消费者，并且对消息队列、消费者列表进行排序，这样新加人的消费者就会在队列重新分布时分配到消费队列从而消费
+
+![image-20210106161055135](note_images/image-20210106161055135.png)
+
+## 消费过程
