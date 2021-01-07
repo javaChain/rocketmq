@@ -33,9 +33,26 @@ public interface ConsumeMessageService {
     void decCorePoolSize();
 
     int getCorePoolSize();
-
+    /**
+     * 直接消费消息,主要用来通过管理命令收到消息
+     * @param msg 消息
+     * @param brokerName broker名称
+     * @return org.apache.rocketmq.common.protocol.body.ConsumeMessageDirectlyResult
+     * @author chenqi
+     * @date 2021/1/7 09:47
+     */
     ConsumeMessageDirectlyResult consumeMessageDirectly(final MessageExt msg, final String brokerName);
 
+    /**
+     * 提交消息消费
+     * @param msgs 消息列表
+     * @param processQueue 消息处理队列
+     * @param messageQueue 消息所属队列
+     * @param dispathToConsume 是否转发到线程池
+     * @return void
+     * @author chenqi
+     * @date 2021/1/7 09:47
+     */
     void submitConsumeRequest(
         final List<MessageExt> msgs,
         final ProcessQueue processQueue,

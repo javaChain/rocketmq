@@ -38,6 +38,7 @@ import org.apache.rocketmq.common.protocol.body.ProcessQueueInfo;
 /**
  * Queue consumption snapshot
  * ProcessQueue是MessageQueue在消费端的重现,快照
+ * @author chenqi
  */
 public class ProcessQueue {
     public final static long REBALANCE_LOCK_MAX_LIVE_TIME =
