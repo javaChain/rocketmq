@@ -60,6 +60,7 @@ public class LocalFileOffsetStore implements OffsetStore {
 
     @Override
     public void load() throws MQClientException {
+        //读本地的offset
         OffsetSerializeWrapper offsetSerializeWrapper = this.readLocalOffset();
         if (offsetSerializeWrapper != null && offsetSerializeWrapper.getOffsetTable() != null) {
             offsetTable.putAll(offsetSerializeWrapper.getOffsetTable());
@@ -140,7 +141,7 @@ public class LocalFileOffsetStore implements OffsetStore {
                 offsetSerializeWrapper.getOffsetTable().put(entry.getKey(), offset);
             }
         }
-
+        //转为json串 写入文件
         String jsonString = offsetSerializeWrapper.toJson(true);
         if (jsonString != null) {
             try {

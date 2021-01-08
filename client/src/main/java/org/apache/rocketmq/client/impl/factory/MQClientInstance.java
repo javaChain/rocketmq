@@ -311,6 +311,7 @@ public class MQClientInstance {
             @Override
             public void run() {
                 try {
+                    //定时任务把内存的数据序列化到磁盘
                     MQClientInstance.this.persistAllConsumerOffset();
                 } catch (Exception e) {
                     log.error("ScheduledTask persistAllConsumerOffset exception", e);
