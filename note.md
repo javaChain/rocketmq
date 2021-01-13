@@ -1482,5 +1482,3 @@ private void rebalanceByTopic(final String topic, final boolean isOrder) {
 	由于每次进行队列重新负载时会从Broker实时查询出当前消费组内所有消费者，并且对消息队列、消费者列表进行排序，这样新加人的消费者就会在队列重新分布时分配到消费队列从而消费
 
 ![image-20210106161055135](note_images/image-20210106161055135.png)
-
-## 

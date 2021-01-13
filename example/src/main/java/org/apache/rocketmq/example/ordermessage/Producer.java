@@ -18,6 +18,7 @@ package org.apache.rocketmq.example.ordermessage;
 
 import java.io.UnsupportedEncodingException;
 import java.util.List;
+
 import org.apache.rocketmq.client.exception.MQBrokerException;
 import org.apache.rocketmq.client.exception.MQClientException;
 import org.apache.rocketmq.client.producer.DefaultMQProducer;
@@ -32,25 +33,39 @@ import org.apache.rocketmq.remoting.exception.RemotingException;
 public class Producer {
     public static void main(String[] args) throws UnsupportedEncodingException {
         try {
-            MQProducer producer = new DefaultMQProducer("please_rename_unique_group_name");
+            DefaultMQProducer producer = new DefaultMQProducer("please_rename_unique_group_name");
+            producer.setNamesrvAddr("127.0.0.1:9876");
+            producer.setSendMsgTimeout(30000);
             producer.start();
 
-            String[] tags = new String[] {"TagA", "TagB", "TagC", "TagD", "TagE"};
             for (int i = 0; i < 100; i++) {
-                int orderId = i % 10;
+                //int orderId = i % 10;
+                //设置orderId为0,表示所有的消息分配到同一个MessageQueue
+                int orderId = 0;
                 Message msg =
-                    new Message("TopicTestjjj", tags[i % tags.length], "KEY" + i,
-                        ("Hello RocketMQ " + i).getBytes(RemotingHelper.DEFAULT_CHARSET));
+                        new Message("TopicTestjjj", "tagA", "KEY" + i,
+                                ("Hello RocketMQ " + i).getBytes(RemotingHelper.DEFAULT_CHARSET));
                 SendResult sendResult = producer.send(msg, new MessageQueueSelector() {
+                    /**
+                     *
+                     * @param mqs
+                     * @param msg
+                     * @param arg 传入进来的参数,此处是orderId的值0,用来计算分配到那个MessageQueue
+                     * @return org.apache.rocketmq.common.message.MessageQueue
+                     * @author chenqi
+                     * @date 2021/1/13 14:50
+                     */
                     @Override
                     public MessageQueue select(List<MessageQueue> mqs, Message msg, Object arg) {
                         Integer id = (Integer) arg;
+                        // orderId%mqs.size()  mqs.size() 默认为4
                         int index = id % mqs.size();
                         return mqs.get(index);
                     }
                 }, orderId);
+                System.out.println(sendResult + ", body:" + new String(msg.getBody()));
+                //System.out.printf("%s%n", sendResult);
 
-                System.out.printf("%s%n", sendResult);
             }
 
             producer.shutdown();

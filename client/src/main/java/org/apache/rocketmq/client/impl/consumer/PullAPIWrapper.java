@@ -77,10 +77,12 @@ public class PullAPIWrapper {
             List<MessageExt> msgList = MessageDecoder.decodes(byteBuffer);
 
             List<MessageExt> msgListFilterAgain = msgList;
+            //如果小时不是类过滤模式 并且tgs不为空
             if (!subscriptionData.getTagsSet().isEmpty() && !subscriptionData.isClassFilterMode()) {
                 msgListFilterAgain = new ArrayList<MessageExt>(msgList.size());
                 for (MessageExt msg : msgList) {
                     if (msg.getTags() != null) {
+                        //如果订阅的tag和消息的tag相同,则把消息存入msgListFilterAgain集合
                         if (subscriptionData.getTagsSet().contains(msg.getTags())) {
                             msgListFilterAgain.add(msg);
                         }
@@ -96,6 +98,7 @@ public class PullAPIWrapper {
             }
 
             for (MessageExt msg : msgListFilterAgain) {
+                //判断是否为事务消息
                 String traFlag = msg.getProperty(MessageConst.PROPERTY_TRANSACTION_PREPARED);
                 if (Boolean.parseBoolean(traFlag)) {
                     msg.setTransactionId(msg.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX));
@@ -106,7 +109,7 @@ public class PullAPIWrapper {
                     Long.toString(pullResult.getMaxOffset()));
                 msg.setBrokerName(mq.getBrokerName());
             }
-
+            //最后把消息设置进入MsgFoundList
             pullResultExt.setMsgFoundList(msgListFilterAgain);
         }
 
@@ -213,7 +216,7 @@ public class PullAPIWrapper {
             requestHeader.setExpressionType(expressionType);
 
             String brokerAddr = findBrokerResult.getBrokerAddr();
-            //如果消息过来模式为类模式
+            //如果消息过滤模式为类模式
             if (PullSysFlag.hasClassFilterFlag(sysFlagInner)) {
                 //通过topic和broker地址找到注册在broker上的filterServer地址,从FilterServer上拉取消息
                 brokerAddr = computPullFromWhichFilterServer(mq.getTopic(), brokerAddr);
