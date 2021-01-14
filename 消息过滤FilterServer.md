@@ -1,5 +1,7 @@
 FilterServer 调用shell创建进程已经被移除了版本>4.3.0,因为 错误: 找不到或无法加载主类 org.apache.rocketmq.filtersrv.FiltersrvStartup 这个类已经删除了
 后面的文章基本不用看了. 下面的文章保留纪念
+https://blog.csdn.net/fly_leopard/article/details/95497116
+
 # 消息过滤FilterServer
 
 基于类过滤是指在Broker端运行1个或多个消息过滤服务器(FilterServer),RocketMQ允许消息消费者自定义消息过滤实现类并将其代码上传到FilterServer上,消息消费者向FilterServer拉取消息,FilterServer将消息消费者的拉取命令转发到Broker,然后返回的消息执行消息过滤逻辑,最终返回给消费端
