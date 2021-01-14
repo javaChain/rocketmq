@@ -3,8 +3,8 @@
 >源码debug:
 >
 >1. 首先github下载rocketmq的4.7.1的代码
->2. 配置nameserver(NamesrvController),broker(BrokerStartup)的ROCKET_HOME环境变量和
->program argument -c "E:\Program Files\rocketmq-all-4.7.1-bin-release\conf\broker.conf"
+>2. 配置nameserver(NamesrvController),broker(BrokerStartup)的ROCKETMQ_HOME=/Users/chenqi/IdeaProjects/rocketmq环境变量和
+>program argument -c "/Users/chenqi/IdeaProjects/rocketmq/broker/src/main/resources/broker.conf"
 >3.	依次启动namesrv/broker/producer/consumer
 
 ![image-20201228195616173](note_images\image-20201228195616173.png)

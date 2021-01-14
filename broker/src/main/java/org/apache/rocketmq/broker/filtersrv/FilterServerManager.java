@@ -50,6 +50,12 @@ public class FilterServerManager {
         this.brokerController = brokerController;
     }
 
+    /**
+     * Broker 启动的时候会创建FilterServerManager定时任务每隔10s向Broker注册自己
+     * @return void
+     * @author chenqi
+     * @date 2021/1/14 09:35
+     */
     public void start() {
 
         this.scheduledExecutorService.scheduleAtFixedRate(new Runnable() {
@@ -64,6 +70,10 @@ public class FilterServerManager {
         }, 1000 * 5, 1000 * 30, TimeUnit.MILLISECONDS);
     }
 
+    /**
+     * 读取配置文件中的FilterServerNums 如果当前运行的FilterServer进程数小于FilterServerNums
+     * 那么就调用callShell命令行,启动FilterServer进程
+     */
     public void createFilterServer() {
         int more =
             this.brokerController.getBrokerConfig().getFilterServerNums() - this.filterServerTable.size();
