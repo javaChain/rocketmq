@@ -62,9 +62,6 @@ public class TransactionProducer {
             }
         }
 
-        for (int i = 0; i < 100000; i++) {
-            Thread.sleep(1000);
-        }
         producer.shutdown();
     }
 }

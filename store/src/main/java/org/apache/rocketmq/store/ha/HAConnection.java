@@ -145,6 +145,10 @@ public class HAConnection {
             return ReadSocketService.class.getSimpleName();
         }
 
+        /**
+         * 处理读事件
+         * @return
+         */
         private boolean processReadEvent() {
             int readSizeZeroTimes = 0;
 
